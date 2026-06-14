@@ -17,17 +17,54 @@ local fnGachaSpin     = makeRemote("RemoteFunction", "GachaSpin")
 local playerData = {}
 
 -- ===== GACHA ITEMS =====
-local GACHA_ITEMS = {
-	{id="skin_red",     rarity="C", label="🔴 Red Skin",      weight=25, color=Color3.fromRGB(255,50,50)},
-	{id="skin_blue",    rarity="C", label="🔵 Blue Skin",     weight=25, color=Color3.fromRGB(50,100,255)},
-	{id="skin_yellow",  rarity="C", label="🟡 Yellow Skin",   weight=20, color=Color3.fromRGB(255,230,50)},
-	{id="trail_star",   rarity="R", label="⭐ Star Trail",    weight=15},
-	{id="trail_fire",   rarity="R", label="🔥 Fire Trail",    weight=10},
-	{id="crown_gold",   rarity="E", label="👑 Gold Crown",    weight=4},
-	{id="aura_rainbow", rarity="L", label="🌈 Rainbow Aura",  weight=1},
+local GACHA_ALL_ITEMS = {
+	{id="skin_red",      rarity="C", label="🔴 Red Skin",       color=Color3.fromRGB(255,50,50)},
+	{id="skin_blue",     rarity="C", label="🔵 Blue Skin",      color=Color3.fromRGB(50,100,255)},
+	{id="skin_yellow",   rarity="C", label="🟡 Yellow Skin",    color=Color3.fromRGB(255,230,50)},
+	{id="skin_green",    rarity="C", label="🟢 Green Skin",     color=Color3.fromRGB(50,200,80)},
+	{id="skin_purple",   rarity="C", label="🟣 Purple Skin",    color=Color3.fromRGB(160,50,220)},
+	{id="trail_star",    rarity="R", label="⭐ Star Trail"},
+	{id="trail_fire",    rarity="R", label="🔥 Fire Trail"},
+	{id="trail_ice",     rarity="R", label="❄️ Ice Trail"},
+	{id="skin_black",    rarity="R", label="⬛ Shadow Skin",    color=Color3.fromRGB(20,20,20)},
+	{id="skin_white",    rarity="R", label="⬜ Ghost Skin",     color=Color3.fromRGB(240,240,240)},
+	{id="crown_gold",    rarity="E", label="👑 Gold Crown"},
+	{id="crown_diamond", rarity="E", label="💎 Diamond Crown"},
+	{id="aura_fire",     rarity="E", label="🔥 Fire Aura"},
+	{id="aura_dark",     rarity="E", label="⚫ Dark Aura"},
+	{id="aura_rainbow",  rarity="L", label="🌈 Rainbow Aura"},
+	{id="aura_galaxy",   rarity="L", label="🌌 Galaxy Aura"},
+	{id="trail_galaxy",  rarity="L", label="✨ Galaxy Trail"},
 }
-local GACHA_TOTAL_WEIGHT = 0
-for _, item in ipairs(GACHA_ITEMS) do GACHA_TOTAL_WEIGHT = GACHA_TOTAL_WEIGHT + item.weight end
+-- Gacha tiers: {label, cost, pool with weights per rarity C/R/E/L}
+local GACHA_TIERS = {
+	{id=1, label="🥉 Bronze",   cost=200,   weights={C=70,R=28,E=2,L=0}},
+	{id=2, label="🥈 Silver",   cost=500,   weights={C=40,R=48,E=11,L=1}},
+	{id=3, label="🥇 Gold",     cost=1500,  weights={C=10,R=48,E=36,L=6}},
+	{id=4, label="💎 Platinum", cost=5000,  weights={C=0, R=20,E=55,L=25}},
+	{id=5, label="🌌 Legend",   cost=20000, weights={C=0, R=0, E=30,L=70}},
+}
+local function getGachaTier(tierId)
+	for _, t in ipairs(GACHA_TIERS) do if t.id == tierId then return t end end
+	return GACHA_TIERS[1]
+end
+local function rollGachaItem(tier)
+	local w = tier.weights
+	local total = w.C + w.R + w.E + w.L
+	local roll = math.random() * total
+	local targetRarity
+	if roll < w.C then targetRarity = "C"
+	elseif roll < w.C + w.R then targetRarity = "R"
+	elseif roll < w.C + w.R + w.E then targetRarity = "E"
+	else targetRarity = "L" end
+	-- Filter items by rarity
+	local pool = {}
+	for _, item in ipairs(GACHA_ALL_ITEMS) do
+		if item.rarity == targetRarity then table.insert(pool, item) end
+	end
+	if #pool == 0 then return GACHA_ALL_ITEMS[1] end
+	return pool[math.random(#pool)]
+end
 
 -- ===== BATTLE ZONE =====
 local BATTLE_ZONE_CENTER = Vector3.new(0, 0.3, 80)
@@ -128,9 +165,15 @@ local function applyCosmetics(player, char)
 		end
 		if items["trail_fire"] then
 			local fire = hrp:FindFirstChildOfClass("Fire") or Instance.new("Fire")
-			fire.Color = Color3.fromRGB(255,80,0)
-			fire.SecondaryColor = Color3.fromRGB(255,200,0)
-			fire.Parent = hrp
+			fire.Color = Color3.fromRGB(255,80,0); fire.SecondaryColor = Color3.fromRGB(255,200,0); fire.Parent = hrp
+		end
+		if items["trail_ice"] then
+			local sp = hrp:FindFirstChild("IceSparkles") or Instance.new("Sparkles")
+			sp.Name="IceSparkles"; sp.SparkleColor=Color3.fromRGB(100,200,255); sp.Parent=hrp
+		end
+		if items["trail_galaxy"] then
+			local sp = hrp:FindFirstChild("GalaxySparkles") or Instance.new("Sparkles")
+			sp.Name="GalaxySparkles"; sp.SparkleColor=Color3.fromRGB(200,100,255); sp.Parent=hrp
 		end
 	end
 
@@ -158,28 +201,34 @@ local function applyCosmetics(player, char)
 		end
 	end
 
-	-- Rainbow aura
-	if items["aura_rainbow"] then
-		local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
-		if torso then
-			local existing = torso:FindFirstChild("RainbowAura")
-			if not existing then
-				local ring = Instance.new("Part")
-				ring.Name = "RainbowAura"
-				ring.Size = Vector3.new(0.3, 5, 5)
-				ring.Shape = Enum.PartType.Cylinder
-				ring.Color = Color3.fromRGB(255,100,200)
-				ring.Material = Enum.Material.Neon
-				ring.Transparency = 0.4
-				ring.Anchored = false
-				ring.CanCollide = false
-				ring.Parent = char
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0 = torso
-				weld.Part1 = ring
-				weld.Parent = ring
-				ring.CFrame = torso.CFrame
-			end
+	-- Auras
+	local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+	if torso then
+		local function makeAura(name, color, transparency)
+			if torso:FindFirstChild(name) then return end
+			local ring = Instance.new("Part"); ring.Name=name
+			ring.Size=Vector3.new(0.3,5,5); ring.Shape=Enum.PartType.Cylinder
+			ring.Color=color; ring.Material=Enum.Material.Neon
+			ring.Transparency=transparency; ring.Anchored=false; ring.CanCollide=false; ring.Parent=char
+			local weld=Instance.new("WeldConstraint"); weld.Part0=torso; weld.Part1=ring; weld.Parent=ring
+			ring.CFrame=torso.CFrame
+		end
+		if items["aura_rainbow"]  then makeAura("RainbowAura", Color3.fromRGB(255,100,200), 0.4) end
+		if items["aura_galaxy"]   then makeAura("GalaxyAura",  Color3.fromRGB(100,50,200),  0.3) end
+		if items["aura_fire"]     then makeAura("FireAura",    Color3.fromRGB(255,80,0),    0.4) end
+		if items["aura_dark"]     then makeAura("DarkAura",    Color3.fromRGB(20,20,20),    0.2) end
+	end
+
+	-- Diamond crown
+	if items["crown_diamond"] then
+		local head = char:FindFirstChild("Head")
+		if head and not head:FindFirstChild("DiamondCrown") then
+			local crown=Instance.new("Part"); crown.Name="DiamondCrown"
+			crown.Size=Vector3.new(1.8,0.5,1.8); crown.Shape=Enum.PartType.Cylinder
+			crown.Color=Color3.fromRGB(100,200,255); crown.Material=Enum.Material.Neon
+			crown.Anchored=false; crown.CanCollide=false; crown.Parent=char
+			local weld=Instance.new("WeldConstraint"); weld.Part0=head; weld.Part1=crown; weld.Parent=crown
+			crown.CFrame=head.CFrame*CFrame.new(0,1.1,0)*CFrame.Angles(0,0,math.pi/2)
 		end
 	end
 end
@@ -316,27 +365,19 @@ fnPurchase.OnServerInvoke = function(player, id)
 end
 
 -- ===== GACHA SPIN =====
-fnGachaSpin.OnServerInvoke = function(player)
+fnGachaSpin.OnServerInvoke = function(player, tierId)
 	local data = playerData[player.UserId]
 	if not data then return {success=false, message="No data"} end
-	if data.coins < 200 then return {success=false, message="Need 🪙200 to spin!"} end
-	data.coins = data.coins - 200
-	-- Weighted random
-	local roll = math.random() * GACHA_TOTAL_WEIGHT
-	local cum = 0
-	local chosen = GACHA_ITEMS[1]
-	for _, item in ipairs(GACHA_ITEMS) do
-		cum = cum + item.weight
-		if roll <= cum then chosen = item; break end
-	end
+	local tier = getGachaTier(tierId or 1)
+	if data.coins < tier.cost then return {success=false, message="Need 🪙"..tier.cost.." for "..tier.label} end
+	data.coins = data.coins - tier.cost
+	local chosen = rollGachaItem(tier)
 	local alreadyOwned = data.gachaItems[chosen.id]
 	data.gachaItems[chosen.id] = true
 	fireUpdate(player)
-	-- Apply cosmetic immediately if character exists
-	if player.Character then
-		applyCosmetics(player, player.Character)
-	end
-	local msg = alreadyOwned and (chosen.label.." (duplicate)") or chosen.label
+	if player.Character then applyCosmetics(player, player.Character) end
+	local msg = alreadyOwned and (chosen.label.." (duplicate+10%)") or chosen.label
+	if alreadyOwned then data.coins = data.coins + math.floor(tier.cost * 0.10) end
 	return {success=true, item=chosen, message=msg, alreadyOwned=alreadyOwned, gachaItems=data.gachaItems}
 end
 
