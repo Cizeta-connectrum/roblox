@@ -189,10 +189,12 @@ local waveActivated = {[1]=false,[2]=false,[3]=false,[4]=false,[5]=false}
 local function activateWave2(boostPads, slowZones)
 	if waveActivated[2] then return end
 	waveActivated[2] = true
-	evAnnounce:FireAllClients("⚠️ WAVE 2! Slow zones are moving!")
-	-- Make existing slow zones move
-	for _, pad in ipairs(slowZones) do
-		addMovingPad(pad, 2)
+	evAnnounce:FireAllClients("⚠️ WAVE 2! Pads moving faster!")
+	-- Speed up existing moving pads
+	for _, mp in ipairs(movingPads) do
+		local spd = math.sqrt(mp.velX^2+mp.velZ^2)
+		local scale = math.min(spd*1.8, 5) / math.max(spd,0.1)
+		mp.velX=mp.velX*scale; mp.velZ=mp.velZ*scale
 	end
 end
 
@@ -304,6 +306,12 @@ task.spawn(function()
 		end
 	end
 	print("Pads: boost="..#boostPads.." slow="..#slowZones.." tax="..#taxZones)
+
+	-- Start moving pads immediately (wave 1: slow start)
+	for _, pad in ipairs(slowZones) do addMovingPad(pad, 2) end
+	for _, pad in ipairs(taxZones) do addMovingPad(pad, 1.5) end
+	for _, pad in ipairs(boostPads) do addMovingPad(pad, 1) end
+	waveActivated[2] = true -- already started, skip duplicate
 
 	local tick05 = 0 -- 0.5s counter for moving pads & thieves
 
