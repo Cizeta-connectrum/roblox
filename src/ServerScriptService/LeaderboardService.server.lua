@@ -1,58 +1,25 @@
 -- LeaderboardService.server.lua
--- Manages the standard Roblox leaderstats board for CoinSimulator
+-- Manages the Roblox leaderboard display
 
 local Players = game:GetService("Players")
-local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Wait for CoinsChanged BindableEvent from CoinManager
-local CoinsChanged = ServerScriptService:WaitForChild("CoinsChanged")
+-- The leaderstats are created in CoinManager, so this service
+-- just ensures they stay updated via the BindableEvent
 
--- Table to hold leaderstats IntValues per player
-local leaderData = {}  -- [userId] = { coinsValue, totalValue }
+local RemoteEventsModule = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RemoteEvents")
+local RemoteEvents = require(RemoteEventsModule)
 
-local function setupLeaderstats(player)
-	local leaderstats = Instance.new("Folder")
-	leaderstats.Name = "leaderstats"
-	leaderstats.Parent = player
+local CoinCollected = RemoteEvents.CoinCollected
 
-	local coinsValue = Instance.new("IntValue")
-	coinsValue.Name = "Coins"
-	coinsValue.Value = 0
-	coinsValue.Parent = leaderstats
-
-	local totalValue = Instance.new("IntValue")
-	totalValue.Name = "Total"
-	totalValue.Value = 0
-	totalValue.Parent = leaderstats
-
-	leaderData[player.UserId] = {
-		coinsValue = coinsValue,
-		totalValue = totalValue,
-	}
-end
-
-Players.PlayerAdded:Connect(function(player)
-	setupLeaderstats(player)
-end)
-
-Players.PlayerRemoving:Connect(function(player)
-	leaderData[player.UserId] = nil
-end)
-
--- Handle existing players (in case service loads late)
-for _, player in ipairs(Players:GetPlayers()) do
-	if not leaderData[player.UserId] then
-		setupLeaderstats(player)
-	end
-end
-
--- Listen for coin changes from CoinManager
-CoinsChanged.Event:Connect(function(player, coins, totalCoins)
-	local entry = leaderData[player.UserId]
-	if entry then
-		entry.coinsValue.Value = coins
-		entry.totalValue.Value = totalCoins
+CoinCollected.Event:Connect(function(player, coins, totalCoins)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats then
+		local coinsVal = leaderstats:FindFirstChild("Coins")
+		local totalVal = leaderstats:FindFirstChild("Total")
+		if coinsVal then coinsVal.Value = coins end
+		if totalVal then totalVal.Value = totalCoins end
 	end
 end)
 
-print("[LeaderboardService] Initialized!")
+print("LeaderboardService loaded!")

@@ -1,184 +1,251 @@
 -- HudController.client.lua
--- Manages the heads-up display for CoinSimulator
+-- Manages the HUD display: coin counter, multiplier, magnet status
 
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local RemoteEventsModule = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RemoteEvents")
+local RemoteEvents = require(RemoteEventsModule)
+
+local UpdateCoins = RemoteEvents.UpdateCoins
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
-local Modules = ReplicatedStorage:WaitForChild("Modules")
-local RemoteEvents = require(Modules:WaitForChild("RemoteEvents"))
+local currentCoins = 0
+local displayedCoins = 0
 
--- ============================================================
--- Build HUD ScreenGui
--- ============================================================
+-- Create HUD
 local hudGui = Instance.new("ScreenGui")
 hudGui.Name = "HudGui"
 hudGui.ResetOnSpawn = false
-hudGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+hudGui.DisplayOrder = 10
 hudGui.Parent = playerGui
 
--- Main coin display frame (top center)
+-- Coin counter background
 local coinFrame = Instance.new("Frame")
 coinFrame.Name = "CoinFrame"
-coinFrame.Size = UDim2.new(0, 280, 0, 60)
-coinFrame.Position = UDim2.new(0.5, -140, 0, 10)
-coinFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-coinFrame.BackgroundTransparency = 0.15
+coinFrame.Size = UDim2.new(0, 280, 0, 70)
+coinFrame.Position = UDim2.new(0.5, -140, 0, 15)
+coinFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+coinFrame.BackgroundTransparency = 0.2
 coinFrame.BorderSizePixel = 0
 coinFrame.Parent = hudGui
 
-local coinCorner = Instance.new("UICorner")
-coinCorner.CornerRadius = UDim.new(0, 12)
-coinCorner.Parent = coinFrame
+local coinFrameCorner = Instance.new("UICorner")
+coinFrameCorner.CornerRadius = UDim.new(0, 16)
+coinFrameCorner.Parent = coinFrame
 
-local coinStroke = Instance.new("UIStroke")
-coinStroke.Color = Color3.fromRGB(255, 200, 0)
-coinStroke.Thickness = 2
-coinStroke.Parent = coinFrame
+local coinFrameStroke = Instance.new("UIStroke")
+coinFrameStroke.Color = Color3.fromRGB(255, 200, 0)
+coinFrameStroke.Thickness = 2
+coinFrameStroke.Parent = coinFrame
 
+-- Coin icon
+local coinIcon = Instance.new("TextLabel")
+coinIcon.Size = UDim2.new(0, 50, 1, 0)
+coinIcon.Position = UDim2.new(0, 5, 0, 0)
+coinIcon.BackgroundTransparency = 1
+coinIcon.Text = "🪙"
+coinIcon.Font = Enum.Font.GothamBold
+coinIcon.TextSize = 36
+coinIcon.TextColor3 = Color3.fromRGB(255, 215, 0)
+coinIcon.Parent = coinFrame
+
+-- Main coin counter
 local coinLabel = Instance.new("TextLabel")
 coinLabel.Name = "CoinLabel"
-coinLabel.Size = UDim2.new(1, -10, 1, 0)
-coinLabel.Position = UDim2.new(0, 5, 0, 0)
+coinLabel.Size = UDim2.new(1, -60, 1, 0)
+coinLabel.Position = UDim2.new(0, 55, 0, 0)
 coinLabel.BackgroundTransparency = 1
-coinLabel.Text = "🪙 0"
-coinLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-coinLabel.TextScaled = true
+coinLabel.Text = "0"
 coinLabel.Font = Enum.Font.GothamBold
-coinLabel.TextXAlignment = Enum.TextXAlignment.Center
+coinLabel.TextSize = 32
+coinLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+coinLabel.TextXAlignment = Enum.TextXAlignment.Left
+coinLabel.TextStrokeTransparency = 0.5
+coinLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
 coinLabel.Parent = coinFrame
 
--- Status bar (below coin frame): multiplier + magnet
-local statusFrame = Instance.new("Frame")
-statusFrame.Name = "StatusFrame"
-statusFrame.Size = UDim2.new(0, 280, 0, 36)
-statusFrame.Position = UDim2.new(0.5, -140, 0, 76)
-statusFrame.BackgroundTransparency = 1
-statusFrame.BorderSizePixel = 0
-statusFrame.Parent = hudGui
-
-local statusLayout = Instance.new("UIListLayout")
-statusLayout.FillDirection = Enum.FillDirection.Horizontal
-statusLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-statusLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-statusLayout.Padding = UDim.new(0, 6)
-statusLayout.Parent = statusFrame
-
 -- Multiplier badge
-local multiplierBadge = Instance.new("Frame")
-multiplierBadge.Name = "MultiplierBadge"
-multiplierBadge.Size = UDim2.new(0, 120, 0, 32)
-multiplierBadge.BackgroundColor3 = Color3.fromRGB(0, 180, 80)
-multiplierBadge.BackgroundTransparency = 0.2
-multiplierBadge.BorderSizePixel = 0
-multiplierBadge.Visible = false
-multiplierBadge.Parent = statusFrame
+local multFrame = Instance.new("Frame")
+multFrame.Name = "MultiplierFrame"
+multFrame.Size = UDim2.new(0, 120, 0, 35)
+multFrame.Position = UDim2.new(0.5, -60, 0, 88)
+multFrame.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+multFrame.BackgroundTransparency = 0.2
+multFrame.BorderSizePixel = 0
+multFrame.Visible = false
+multFrame.Parent = hudGui
 
 local multCorner = Instance.new("UICorner")
-multCorner.CornerRadius = UDim.new(0, 8)
-multCorner.Parent = multiplierBadge
+multCorner.CornerRadius = UDim.new(0, 10)
+multCorner.Parent = multFrame
 
-local multiplierLabel = Instance.new("TextLabel")
-multiplierLabel.Size = UDim2.new(1, 0, 1, 0)
-multiplierLabel.BackgroundTransparency = 1
-multiplierLabel.Text = "x2 ACTIVE"
-multiplierLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-multiplierLabel.TextScaled = true
-multiplierLabel.Font = Enum.Font.GothamBold
-multiplierLabel.Parent = multiplierBadge
+local multLabel = Instance.new("TextLabel")
+multLabel.Size = UDim2.new(1, 0, 1, 0)
+multLabel.BackgroundTransparency = 1
+multLabel.Text = "x2 ACTIVE"
+multLabel.Font = Enum.Font.GothamBold
+multLabel.TextSize = 16
+multLabel.TextColor3 = Color3.new(1, 1, 1)
+multLabel.Parent = multFrame
 
 -- Magnet badge
-local magnetBadge = Instance.new("Frame")
-magnetBadge.Name = "MagnetBadge"
-magnetBadge.Size = UDim2.new(0, 140, 0, 32)
-magnetBadge.BackgroundColor3 = Color3.fromRGB(180, 0, 200)
-magnetBadge.BackgroundTransparency = 0.2
-magnetBadge.BorderSizePixel = 0
-magnetBadge.Visible = false
-magnetBadge.Parent = statusFrame
+local magnetFrame = Instance.new("Frame")
+magnetFrame.Name = "MagnetFrame"
+magnetFrame.Size = UDim2.new(0, 140, 0, 35)
+magnetFrame.Position = UDim2.new(0.5, -70, 0, 127)
+magnetFrame.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+magnetFrame.BackgroundTransparency = 0.2
+magnetFrame.BorderSizePixel = 0
+magnetFrame.Visible = false
+magnetFrame.Parent = hudGui
 
-local magCorner = Instance.new("UICorner")
-magCorner.CornerRadius = UDim.new(0, 8)
-magCorner.Parent = magnetBadge
+local magnetCorner = Instance.new("UICorner")
+magnetCorner.CornerRadius = UDim.new(0, 10)
+magnetCorner.Parent = magnetFrame
 
 local magnetLabel = Instance.new("TextLabel")
 magnetLabel.Size = UDim2.new(1, 0, 1, 0)
 magnetLabel.BackgroundTransparency = 1
 magnetLabel.Text = "🧲 MAGNET ACTIVE"
-magnetLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-magnetLabel.TextScaled = true
 magnetLabel.Font = Enum.Font.GothamBold
-magnetLabel.Parent = magnetBadge
+magnetLabel.TextSize = 14
+magnetLabel.TextColor3 = Color3.new(1, 1, 1)
+magnetLabel.Parent = magnetFrame
 
--- ============================================================
--- Coin count formatting helper
--- ============================================================
-local function formatNumber(n)
-	local s = tostring(math.floor(n))
-	local result = ""
-	local len = #s
-	for i = 1, len do
-		result = result .. s:sub(i, i)
-		if (len - i) % 3 == 0 and i ~= len then
-			result = result .. ","
-		end
-	end
-	return result
+-- Hints frame (bottom left)
+local hintsFrame = Instance.new("Frame")
+hintsFrame.Size = UDim2.new(0, 220, 0, 60)
+hintsFrame.Position = UDim2.new(0, 15, 1, -80)
+hintsFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+hintsFrame.BackgroundTransparency = 0.5
+hintsFrame.BorderSizePixel = 0
+hintsFrame.Parent = hudGui
+
+local hintsCorner = Instance.new("UICorner")
+hintsCorner.CornerRadius = UDim.new(0, 10)
+hintsCorner.Parent = hintsFrame
+
+local hintsLabel = Instance.new("TextLabel")
+hintsLabel.Size = UDim2.new(1, -10, 1, 0)
+hintsLabel.Position = UDim2.new(0, 5, 0, 0)
+hintsLabel.BackgroundTransparency = 1
+hintsLabel.Text = "Walk near coins to collect!\nPress E near Shop to upgrade"
+hintsLabel.Font = Enum.Font.Gotham
+hintsLabel.TextSize = 13
+hintsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+hintsLabel.TextXAlignment = Enum.TextXAlignment.Left
+hintsLabel.Parent = hintsFrame
+
+-- Coin type legend (top right)
+local legendFrame = Instance.new("Frame")
+legendFrame.Size = UDim2.new(0, 160, 0, 110)
+legendFrame.Position = UDim2.new(1, -175, 0, 15)
+legendFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+legendFrame.BackgroundTransparency = 0.4
+legendFrame.BorderSizePixel = 0
+legendFrame.Parent = hudGui
+
+local legendCorner = Instance.new("UICorner")
+legendCorner.CornerRadius = UDim.new(0, 10)
+legendCorner.Parent = legendFrame
+
+local legendTitle = Instance.new("TextLabel")
+legendTitle.Size = UDim2.new(1, 0, 0, 22)
+legendTitle.BackgroundTransparency = 1
+legendTitle.Text = "COIN TYPES"
+legendTitle.Font = Enum.Font.GothamBold
+legendTitle.TextSize = 13
+legendTitle.TextColor3 = Color3.fromRGB(255, 215, 0)
+legendTitle.Parent = legendFrame
+
+local coinTypes = {
+	{ name = "Common",    value = "1",   color = Color3.fromRGB(255, 215, 0) },
+	{ name = "Rare",      value = "5",   color = Color3.fromRGB(0, 120, 255) },
+	{ name = "Epic",      value = "20",  color = Color3.fromRGB(160, 0, 255) },
+	{ name = "Legendary", value = "100", color = Color3.fromRGB(255, 165, 0) },
+}
+
+for i, ct in ipairs(coinTypes) do
+	local row = Instance.new("TextLabel")
+	row.Size = UDim2.new(1, -10, 0, 20)
+	row.Position = UDim2.new(0, 5, 0, 20 + (i-1) * 22)
+	row.BackgroundTransparency = 1
+	row.Text = "● " .. ct.name .. " = +" .. ct.value
+	row.Font = Enum.Font.Gotham
+	row.TextSize = 13
+	row.TextColor3 = ct.color
+	row.TextXAlignment = Enum.TextXAlignment.Left
+	row.Parent = legendFrame
 end
 
--- ============================================================
--- Update HUD
--- ============================================================
-local currentDisplayedCoins = 0
+-- Animate coin counter
+local function formatNumber(n)
+	n = math.floor(n)
+	if n >= 1000000 then
+		return string.format("%.1fM", n / 1000000)
+	elseif n >= 1000 then
+		return string.format("%.1fK", n / 1000)
+	else
+		return tostring(n)
+	end
+end
 
-local function updateHud(coins, totalCoins, multiplier, magnet)
-	-- Tween coin counter
-	local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-
-	-- We'll just update the text; a "pop" scale tween on the frame
-	coinLabel.Text = "🪙 " .. formatNumber(coins)
-
-	-- Pop animation on the coin frame
-	local popTween = TweenService:Create(coinFrame, TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 300, 0, 68),
-		Position = UDim2.new(0.5, -150, 0, 6),
-	})
-	popTween:Play()
-	popTween.Completed:Connect(function()
-		local restoreTween = TweenService:Create(coinFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Size = UDim2.new(0, 280, 0, 60),
-			Position = UDim2.new(0.5, -140, 0, 10),
-		})
-		restoreTween:Play()
+local function animateCoinCount(targetCoins)
+	-- Pop animation on frame
+	TweenService:Create(coinFrame, TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, 300, 0, 76)
+	}):Play()
+	task.delay(0.1, function()
+		TweenService:Create(coinFrame, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Size = UDim2.new(0, 280, 0, 70)
+		}):Play()
 	end)
 
-	-- Multiplier badge
-	if multiplier and multiplier > 1 then
-		multiplierBadge.Visible = true
-		multiplierLabel.Text = "x" .. tostring(multiplier) .. " ACTIVE"
-	else
-		multiplierBadge.Visible = false
-	end
+	-- Smooth number tween
+	local startCoins = displayedCoins
+	local diff = targetCoins - startCoins
+	local duration = math.min(0.5, math.abs(diff) * 0.01 + 0.1)
+	local startTime = tick()
 
-	-- Magnet badge
-	magnetBadge.Visible = magnet == true
+	task.spawn(function()
+		while true do
+			local elapsed = tick() - startTime
+			local t = math.min(elapsed / duration, 1)
+			-- Ease out
+			local eased = 1 - (1 - t) ^ 2
+			displayedCoins = startCoins + diff * eased
+			coinLabel.Text = formatNumber(displayedCoins)
 
-	currentDisplayedCoins = coins
+			if t >= 1 then
+				displayedCoins = targetCoins
+				coinLabel.Text = formatNumber(targetCoins)
+				break
+			end
+			task.wait()
+		end
+	end)
 end
 
--- ============================================================
--- Listen for coin updates from server
--- ============================================================
-RemoteEvents.UpdateCoins.OnClientEvent:Connect(function(coins, totalCoins, multiplier, magnet)
-	updateHud(coins, totalCoins, multiplier, magnet)
+UpdateCoins.OnClientEvent:Connect(function(coins, totalCoins, multiplier, magnet)
+	if coins ~= currentCoins then
+		animateCoinCount(coins)
+		currentCoins = coins
+	end
+
+	-- Update multiplier badge
+	if multiplier and multiplier > 1 then
+		multFrame.Visible = true
+		multLabel.Text = "x" .. tostring(multiplier) .. " ACTIVE"
+	else
+		multFrame.Visible = false
+	end
+
+	-- Update magnet badge
+	magnetFrame.Visible = magnet == true
 end)
 
--- ============================================================
--- Floating text effects triggered by ShowCollectEffect
--- (secondary display in screen space — world-space handled by CoinController)
--- ============================================================
--- No duplicate here; CoinController handles world-space effects.
--- HudController could show screen-space notifications if desired.
+print("HudController loaded!")
