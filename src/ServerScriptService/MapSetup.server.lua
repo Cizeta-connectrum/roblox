@@ -1,156 +1,147 @@
--- MapSetup.server.lua
--- Creates the game world
+local TweenService = game:GetService("TweenService")
 
-local workspace = game:GetService("Workspace")
+local existingBaseplate = workspace:FindFirstChild("Baseplate")
+if existingBaseplate then existingBaseplate:Destroy() end
 
--- Large baseplate
 local baseplate = Instance.new("Part")
 baseplate.Name = "Baseplate"
-baseplate.Size = Vector3.new(600, 1, 600)
+baseplate.Size = Vector3.new(500, 1, 500)
 baseplate.Position = Vector3.new(0, -0.5, 0)
-baseplate.Anchored = true
-baseplate.BrickColor = BrickColor.new("Bright green")
+baseplate.Anchored = true; baseplate.Locked = true
+baseplate.Color = Color3.fromRGB(106, 127, 63)
 baseplate.Material = Enum.Material.Grass
 baseplate.Parent = workspace
 
--- Atmosphere
-local lighting = game:GetService("Lighting")
-local atmosphere = Instance.new("Atmosphere")
-atmosphere.Density = 0.3
-atmosphere.Color = Color3.fromRGB(199, 220, 255)
-atmosphere.Decay = Color3.fromRGB(106, 127, 189)
-atmosphere.Glare = 0
-atmosphere.Haze = 0
-atmosphere.Parent = lighting
-
-lighting.Sky = Instance.new("Sky")
-lighting.Sky.Parent = lighting
-
--- Helper: BillboardGui
-local function makeBillboard(parent, text, textColor)
-    local bb = Instance.new("BillboardGui")
-    bb.Size = UDim2.new(0, 200, 0, 50)
-    bb.StudsOffset = Vector3.new(0, 5, 0)
-    bb.AlwaysOnTop = false
-    bb.Parent = parent
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = textColor or Color3.fromRGB(255, 255, 255)
-    label.TextScaled = true
-    label.Font = Enum.Font.GothamBold
-    label.Parent = bb
+local function makeBillboard(parent, text, color)
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(0,160,0,55)
+	bb.StudsOffset = Vector3.new(0,4,0)
+	bb.AlwaysOnTop = true
+	bb.Parent = parent
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1,0,1,0)
+	lbl.BackgroundColor3 = Color3.fromRGB(0,0,0)
+	lbl.BackgroundTransparency = 0.35
+	lbl.Text = text
+	lbl.TextColor3 = color
+	lbl.TextStrokeTransparency = 0
+	lbl.TextScaled = true
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Parent = bb
+	Instance.new("UICorner", lbl).CornerRadius = UDim.new(0,8)
 end
 
--- Boost pads (5)
-local boostPositions = {
-    Vector3.new(80, 0.5, 60),
-    Vector3.new(-120, 0.5, 100),
-    Vector3.new(150, 0.5, -80),
-    Vector3.new(-60, 0.5, -150),
-    Vector3.new(30, 0.5, 170),
-}
-for _, pos in ipairs(boostPositions) do
-    local pad = Instance.new("Part")
-    pad.Name = "BoostPad"
-    pad.Size = Vector3.new(8, 1, 8)
-    pad.Position = pos
-    pad.Anchored = true
-    pad.BrickColor = BrickColor.new("Bright yellow")
-    pad.Material = Enum.Material.Neon
-    pad.Parent = workspace
-    makeBillboard(pad, "⚡ SPEED BOOST!", Color3.fromRGB(255, 255, 0))
+-- ⚡ Boost pads
+for _, pos in ipairs({
+	Vector3.new(60,0.5,60), Vector3.new(-60,0.5,60),
+	Vector3.new(60,0.5,-60), Vector3.new(-60,0.5,-60),
+	Vector3.new(100,0.5,0),
+}) do
+	local p = Instance.new("Part")
+	p.Name = "BoostPad"
+	p.Size = Vector3.new(10,0.6,10)
+	p.Position = pos
+	p.Anchored = true; p.CanCollide = true
+	p.Color = Color3.fromRGB(255,220,0)
+	p.Material = Enum.Material.Neon
+	p.Parent = workspace
+	makeBillboard(p, "⚡ BOOST! +Speed", Color3.fromRGB(255,255,0))
+	local pl = Instance.new("PointLight"); pl.Brightness=2; pl.Range=14; pl.Color=Color3.fromRGB(255,220,0); pl.Parent=p
 end
 
--- Slow zones (4)
-local slowPositions = {
-    Vector3.new(-100, 0.25, -100),
-    Vector3.new(130, 0.25, 130),
-    Vector3.new(-170, 0.25, 50),
-    Vector3.new(60, 0.25, -170),
-}
-for _, pos in ipairs(slowPositions) do
-    local zone = Instance.new("Part")
-    zone.Name = "SlowZone"
-    zone.Size = Vector3.new(12, 0.5, 12)
-    zone.Position = pos
-    zone.Anchored = true
-    zone.BrickColor = BrickColor.new("Dark indigo")
-    zone.Material = Enum.Material.Neon
-    zone.Transparency = 0.4
-    zone.Parent = workspace
-    makeBillboard(zone, "🐌 SLOW ZONE", Color3.fromRGB(180, 100, 255))
+-- 🐌 Slow zones
+for _, pos in ipairs({
+	Vector3.new(30,0.3,100), Vector3.new(-80,0.3,-30), Vector3.new(120,0.3,-80),
+}) do
+	local p = Instance.new("Part")
+	p.Name = "SlowZone"
+	p.Size = Vector3.new(16,0.4,16)
+	p.Position = pos
+	p.Anchored = true; p.CanCollide = true
+	p.Color = Color3.fromRGB(80,0,160)
+	p.Material = Enum.Material.Neon
+	p.Transparency = 0.2
+	p.Parent = workspace
+	makeBillboard(p, "🐌 SLOW ZONE!", Color3.fromRGB(200,100,255))
+	local pl = Instance.new("PointLight"); pl.Brightness=2; pl.Range=14; pl.Color=Color3.fromRGB(80,0,160); pl.Parent=p
 end
 
--- Shop building
+-- 💸 Tax zones (マイナス: コインを20%失う)
+for _, pos in ipairs({
+	Vector3.new(-40,0.3,-100), Vector3.new(150,0.3,50),
+}) do
+	local p = Instance.new("Part")
+	p.Name = "TaxZone"
+	p.Size = Vector3.new(14,0.4,14)
+	p.Position = pos
+	p.Anchored = true; p.CanCollide = true
+	p.Color = Color3.fromRGB(200,30,30)
+	p.Material = Enum.Material.Neon
+	p.Transparency = 0.2
+	p.Parent = workspace
+	makeBillboard(p, "💸 TAX! -20% Coins", Color3.fromRGB(255,80,80))
+	local pl = Instance.new("PointLight"); pl.Brightness=2; pl.Range=14; pl.Color=Color3.fromRGB(200,30,30); pl.Parent=p
+end
+
+-- 🕳️ Holes (マイナス: 近づくとコイン-30%+飛ばされる)
+for _, pos in ipairs({
+	Vector3.new(-100,-0.4,50), Vector3.new(80,-0.4,-120),
+}) do
+	local hole = Instance.new("Part")
+	hole.Name = "Hole"
+	hole.Shape = Enum.PartType.Cylinder
+	hole.Size = Vector3.new(0.5,14,14)
+	hole.CFrame = CFrame.new(pos) * CFrame.Angles(0,0,math.pi/2)
+	hole.Anchored = true; hole.CanCollide = false
+	hole.Color = Color3.fromRGB(15,15,15)
+	hole.Material = Enum.Material.SmoothPlastic
+	hole.Parent = workspace
+	makeBillboard(hole, "🕳️ HOLE! -30%", Color3.fromRGB(255,80,80))
+end
+
+-- 🏪 Shop
 local shopPart = Instance.new("Part")
 shopPart.Name = "ShopPart"
-shopPart.Size = Vector3.new(12, 8, 12)
-shopPart.Position = Vector3.new(0, 4, -80)
+shopPart.Size = Vector3.new(10,5,10)
+shopPart.Position = Vector3.new(0,2.5,-50)
 shopPart.Anchored = true
-shopPart.BrickColor = BrickColor.new("Bright blue")
-shopPart.Material = Enum.Material.SmoothPlastic
+shopPart.Color = Color3.fromRGB(0,162,255)
+shopPart.Material = Enum.Material.Neon
 shopPart.Parent = workspace
+makeBillboard(shopPart, "🏪 SHOP\nWalk here!", Color3.new(1,1,1))
+local sl = Instance.new("PointLight"); sl.Brightness=4; sl.Range=22; sl.Color=Color3.fromRGB(0,162,255); sl.Parent=shopPart
+task.spawn(function()
+	while true do
+		TweenService:Create(sl, TweenInfo.new(1,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{Brightness=6}):Play()
+		task.wait(1)
+		TweenService:Create(sl, TweenInfo.new(1,Enum.EasingStyle.Sine,Enum.EasingDirection.InOut),{Brightness=2}):Play()
+		task.wait(1)
+	end
+end)
 
-local shopBb = Instance.new("BillboardGui")
-shopBb.Size = UDim2.new(0, 300, 0, 70)
-shopBb.StudsOffset = Vector3.new(0, 8, 0)
-shopBb.AlwaysOnTop = true
-shopBb.Parent = shopPart
-
-local shopLabel = Instance.new("TextLabel")
-shopLabel.Size = UDim2.new(1, 0, 1, 0)
-shopLabel.BackgroundTransparency = 1
-shopLabel.Text = "🏪 SHOP (walk in!)"
-shopLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-shopLabel.TextScaled = true
-shopLabel.Font = Enum.Font.GothamBold
-shopLabel.Parent = shopBb
-
--- 40 decorative trees
-math.randomseed(42)
-local treePositions = {}
-local function isTooClose(pos)
-    for _, p in ipairs(treePositions) do
-        if (p - pos).Magnitude < 12 then return true end
-    end
-    -- avoid center and shop
-    if pos.Magnitude < 30 then return true end
-    if (pos - Vector3.new(0, 0, -80)).Magnitude < 20 then return true end
-    return false
+-- Trees
+math.randomseed(12345)
+for i = 1, 40 do
+	local angle = math.random()*math.pi*2
+	local dist = math.random(30,220)
+	local x = math.cos(angle)*dist
+	local z = math.sin(angle)*dist
+	if math.abs(z+50)>15 or math.abs(x)>15 then
+		local trunk = Instance.new("Part")
+		trunk.Shape = Enum.PartType.Cylinder
+		trunk.Size = Vector3.new(8,1.5,1.5)
+		trunk.CFrame = CFrame.new(x,4,z)*CFrame.Angles(0,0,math.pi/2)
+		trunk.Anchored=true; trunk.Color=Color3.fromRGB(106,75,45); trunk.Material=Enum.Material.Wood; trunk.Parent=workspace
+		local leaves = Instance.new("Part")
+		leaves.Shape=Enum.PartType.Ball; leaves.Size=Vector3.new(6,6,6)
+		leaves.Position=Vector3.new(x,9,z); leaves.Anchored=true
+		leaves.Color=Color3.fromRGB(math.random(60,100),math.random(120,180),math.random(40,80))
+		leaves.Material=Enum.Material.Grass; leaves.Parent=workspace
+	end
 end
 
-local treesPlaced = 0
-local attempts = 0
-while treesPlaced < 40 and attempts < 500 do
-    attempts = attempts + 1
-    local x = math.random(-200, 200)
-    local z = math.random(-200, 200)
-    local pos2d = Vector3.new(x, 0, z)
-    if not isTooClose(pos2d) then
-        table.insert(treePositions, pos2d)
-        treesPlaced = treesPlaced + 1
+local lighting = game:GetService("Lighting")
+lighting.Brightness = 2; lighting.TimeOfDay = "14:00:00"
+local atm = Instance.new("Atmosphere"); atm.Density=0.3; atm.Haze=0.5; atm.Parent=lighting
 
-        -- Trunk
-        local trunk = Instance.new("Part")
-        trunk.Shape = Enum.PartType.Cylinder
-        trunk.Size = Vector3.new(5, 1.5, 1.5)
-        trunk.Position = Vector3.new(x, 2.5, z)
-        trunk.Anchored = true
-        trunk.BrickColor = BrickColor.new("Reddish brown")
-        trunk.Material = Enum.Material.Wood
-        trunk.Parent = workspace
-
-        -- Top
-        local top = Instance.new("Part")
-        top.Shape = Enum.PartType.Ball
-        top.Size = Vector3.new(5, 5, 5)
-        top.Position = Vector3.new(x, 7, z)
-        top.Anchored = true
-        top.BrickColor = BrickColor.new("Bright green")
-        top.Material = Enum.Material.Grass
-        top.Parent = workspace
-    end
-end
+print("MapSetup loaded!")
