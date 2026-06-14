@@ -5,7 +5,7 @@ local Remotes = {}
 
 if RunService:IsServer() then
     local folder = Instance.new("Folder")
-    folder.Name = "Remotes"
+    folder.Name = "RF"
     folder.Parent = ReplicatedStorage
     
     local events = {"CoinsUpdated", "EventAnnounce", "ShowEffect"}
@@ -24,7 +24,7 @@ if RunService:IsServer() then
     
     Remotes.folder = folder
 else
-    Remotes.folder = ReplicatedStorage:WaitForChild("Remotes", 10)
+    Remotes.folder = ReplicatedStorage:WaitForChild("RF", 10)
 end
 
 function Remotes:Get(name)
