@@ -119,6 +119,85 @@ task.spawn(function()
 	end
 end)
 
+-- ⚔️ Battle Zone
+local battleZone = Instance.new("Part")
+battleZone.Name = "BattleZone"
+battleZone.Size = Vector3.new(30, 0.5, 30)
+battleZone.Position = Vector3.new(0, 0.3, 80)
+battleZone.Anchored = true
+battleZone.CanCollide = true
+battleZone.Color = Color3.fromRGB(120, 0, 80)
+battleZone.Material = Enum.Material.Neon
+battleZone.Transparency = 0.15
+battleZone.Parent = workspace
+do
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(0,220,0,70)
+	bb.StudsOffset = Vector3.new(0,5,0)
+	bb.AlwaysOnTop = true
+	bb.Parent = battleZone
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1,0,1,0)
+	lbl.BackgroundColor3 = Color3.fromRGB(80,0,40)
+	lbl.BackgroundTransparency = 0.2
+	lbl.Text = "⚔️ BATTLE ZONE\nSteal coins here!"
+	lbl.TextColor3 = Color3.fromRGB(255,100,200)
+	lbl.TextStrokeTransparency = 0
+	lbl.TextScaled = true
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Parent = bb
+	Instance.new("UICorner", lbl).CornerRadius = UDim.new(0,8)
+	local pl = Instance.new("PointLight")
+	pl.Brightness = 4; pl.Range = 20; pl.Color = Color3.fromRGB(180,0,100); pl.Parent = battleZone
+end
+
+-- 🎰 Gacha Machine
+local gachaMachine = Instance.new("Part")
+gachaMachine.Name = "GachaMachine"
+gachaMachine.Shape = Enum.PartType.Ball
+gachaMachine.Size = Vector3.new(5, 5, 5)
+gachaMachine.Position = Vector3.new(-30, 2.5, -50)
+gachaMachine.Anchored = true
+gachaMachine.CanCollide = true
+gachaMachine.Color = Color3.fromRGB(255, 100, 200)
+gachaMachine.Material = Enum.Material.Neon
+gachaMachine.Parent = workspace
+do
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.new(0,200,0,70)
+	bb.StudsOffset = Vector3.new(0,5,0)
+	bb.AlwaysOnTop = true
+	bb.Parent = gachaMachine
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1,0,1,0)
+	lbl.BackgroundColor3 = Color3.fromRGB(80,0,60)
+	lbl.BackgroundTransparency = 0.2
+	lbl.Text = "🎰 GACHA\n200 coins/spin"
+	lbl.TextColor3 = Color3.fromRGB(255,200,100)
+	lbl.TextStrokeTransparency = 0
+	lbl.TextScaled = true
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Parent = bb
+	Instance.new("UICorner", lbl).CornerRadius = UDim.new(0,8)
+	local pl = Instance.new("PointLight")
+	pl.Brightness = 5; pl.Range = 18; pl.Color = Color3.fromRGB(255,100,200); pl.Parent = gachaMachine
+	-- Rainbow pulse
+	task.spawn(function()
+		local colors = {
+			Color3.fromRGB(255,80,80), Color3.fromRGB(255,160,0),
+			Color3.fromRGB(100,255,80), Color3.fromRGB(80,160,255),
+			Color3.fromRGB(200,80,255),
+		}
+		local i = 1
+		while gachaMachine.Parent do
+			TweenService:Create(gachaMachine, TweenInfo.new(0.8, Enum.EasingStyle.Sine), {Color=colors[i]}):Play()
+			TweenService:Create(pl, TweenInfo.new(0.8, Enum.EasingStyle.Sine), {Color=colors[i]}):Play()
+			i = (i % #colors) + 1
+			task.wait(0.8)
+		end
+	end)
+end
+
 -- Trees
 math.randomseed(12345)
 for i = 1, 40 do

@@ -5,9 +5,10 @@ local RS = game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 
 -- Get RemoteEvents directly
-local evCoinsUpdated = RS:WaitForChild("CoinsUpdated", 30)
-local evShowEffect   = RS:WaitForChild("ShowEffect",   30)
-local evAnnounce     = RS:WaitForChild("EventAnnounce",30)
+local evCoinsUpdated  = RS:WaitForChild("CoinsUpdated",    30)
+local evShowEffect    = RS:WaitForChild("ShowEffect",      30)
+local evAnnounce      = RS:WaitForChild("EventAnnounce",   30)
+local evRankingUpdate = RS:WaitForChild("RankingUpdate",   30)
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "HUD"; gui.ResetOnSpawn = false; gui.IgnoreGuiInset = true
@@ -78,6 +79,71 @@ Instance.new("UICorner",bannerFrame).CornerRadius=UDim.new(0,12)
 local bannerLabel=Instance.new("TextLabel"); bannerLabel.Size=UDim2.new(1,0,1,0)
 bannerLabel.BackgroundTransparency=1; bannerLabel.TextColor3=Color3.new(1,1,1)
 bannerLabel.TextScaled=true; bannerLabel.Font=Enum.Font.GothamBold; bannerLabel.Parent=bannerFrame
+
+-- ===== RANKING LEADERBOARD (left side) =====
+local rankFrame = Instance.new("Frame")
+rankFrame.Name = "RankingBoard"
+rankFrame.Size = UDim2.new(0, 210, 0, 210)
+rankFrame.Position = UDim2.new(0, 10, 0.5, -105)
+rankFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+rankFrame.BackgroundTransparency = 0.45
+rankFrame.BorderSizePixel = 0
+rankFrame.Parent = gui
+Instance.new("UICorner", rankFrame).CornerRadius = UDim.new(0, 12)
+
+local rankTitle = Instance.new("TextLabel")
+rankTitle.Size = UDim2.new(1, 0, 0, 34)
+rankTitle.Position = UDim2.new(0, 0, 0, 0)
+rankTitle.BackgroundTransparency = 1
+rankTitle.Text = "🏆 TOP PLAYERS"
+rankTitle.TextColor3 = Color3.fromRGB(255, 215, 0)
+rankTitle.TextScaled = true
+rankTitle.Font = Enum.Font.GothamBold
+rankTitle.TextStrokeTransparency = 0
+rankTitle.Parent = rankFrame
+
+local rankLabels = {}
+local rankColors = {
+	Color3.fromRGB(255,215,0),   -- gold #1
+	Color3.fromRGB(192,192,192), -- silver #2
+	Color3.fromRGB(205,127,50),  -- bronze #3
+	Color3.fromRGB(200,200,200), -- #4
+	Color3.fromRGB(200,200,200), -- #5
+}
+for i = 1, 5 do
+	local row = Instance.new("TextLabel")
+	row.Size = UDim2.new(1, -10, 0, 30)
+	row.Position = UDim2.new(0, 5, 0, 30 + (i-1)*34)
+	row.BackgroundTransparency = 1
+	row.Text = "#"..i.." ---"
+	row.TextColor3 = rankColors[i]
+	row.TextScaled = true
+	row.Font = Enum.Font.GothamBold
+	row.TextXAlignment = Enum.TextXAlignment.Left
+	row.TextStrokeTransparency = 0.5
+	row.Parent = rankFrame
+	rankLabels[i] = row
+end
+
+evRankingUpdate.OnClientEvent:Connect(function(top5)
+	for i = 1, 5 do
+		local lbl = rankLabels[i]
+		local entry = top5[i]
+		if entry then
+			local prefix = (i == 1) and "👑 " or ("#"..i.." ")
+			local coins = entry.coins
+			local fmt
+			if coins >= 1e6 then fmt = string.format("%.1fM", coins/1e6)
+			elseif coins >= 1000 then fmt = string.format("%.1fK", coins/1000)
+			else fmt = tostring(math.floor(coins)) end
+			lbl.Text = prefix..entry.name..": 🪙"..fmt
+			lbl.TextTransparency = 0
+		else
+			lbl.Text = "#"..i.." ---"
+			lbl.TextTransparency = 0.5
+		end
+	end
+end)
 
 -- Hint
 local hintLabel = Instance.new("TextLabel")

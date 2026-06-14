@@ -7,12 +7,32 @@ local function makeRemote(cls, name)
 	if not r then r = Instance.new(cls); r.Name = name; r.Parent = RS end
 	return r
 end
-local evCoinsUpdated = makeRemote("RemoteEvent",    "CoinsUpdated")
-local evShowEffect   = makeRemote("RemoteEvent",    "ShowEffect")
-local evAnnounce     = makeRemote("RemoteEvent",    "EventAnnounce")
-local fnPurchase     = makeRemote("RemoteFunction", "PurchaseUpgrade")
+local evCoinsUpdated  = makeRemote("RemoteEvent",    "CoinsUpdated")
+local evShowEffect    = makeRemote("RemoteEvent",    "ShowEffect")
+local evAnnounce      = makeRemote("RemoteEvent",    "EventAnnounce")
+local fnPurchase      = makeRemote("RemoteFunction", "PurchaseUpgrade")
+local evRankingUpdate = makeRemote("RemoteEvent",    "RankingUpdate")
+local fnGachaSpin     = makeRemote("RemoteFunction", "GachaSpin")
 
 local playerData = {}
+
+-- ===== GACHA ITEMS =====
+local GACHA_ITEMS = {
+	{id="skin_red",     rarity="C", label="🔴 Red Skin",      weight=25, color=Color3.fromRGB(255,50,50)},
+	{id="skin_blue",    rarity="C", label="🔵 Blue Skin",     weight=25, color=Color3.fromRGB(50,100,255)},
+	{id="skin_yellow",  rarity="C", label="🟡 Yellow Skin",   weight=20, color=Color3.fromRGB(255,230,50)},
+	{id="trail_star",   rarity="R", label="⭐ Star Trail",    weight=15},
+	{id="trail_fire",   rarity="R", label="🔥 Fire Trail",    weight=10},
+	{id="crown_gold",   rarity="E", label="👑 Gold Crown",    weight=4},
+	{id="aura_rainbow", rarity="L", label="🌈 Rainbow Aura",  weight=1},
+}
+local GACHA_TOTAL_WEIGHT = 0
+for _, item in ipairs(GACHA_ITEMS) do GACHA_TOTAL_WEIGHT = GACHA_TOTAL_WEIGHT + item.weight end
+
+-- ===== BATTLE ZONE =====
+local BATTLE_ZONE_CENTER = Vector3.new(0, 0.3, 80)
+local BATTLE_ZONE_RADIUS = 20
+local pvpCooldowns = {} -- "userId1_userId2" -> tick()
 
 local UPGRADES = {
 	radius1  = {cost=100,   label="🔵 Radius I",    apply=function(d) d.radius=14 end},
@@ -76,6 +96,145 @@ local function applySpeed(player)
 	if hum then hum.WalkSpeed = calcSpeed(data) end
 end
 
+-- ===== COSMETIC APPLICATION =====
+local currentKingId = nil -- UserId of current #1 player
+
+local function applyCosmetics(player, char)
+	local data = playerData[player.UserId]
+	if not data then return end
+	local items = data.gachaItems
+
+	-- Skin colors
+	local skinColor = nil
+	if items["skin_red"]    then skinColor = Color3.fromRGB(255,50,50)
+	elseif items["skin_blue"]   then skinColor = Color3.fromRGB(50,100,255)
+	elseif items["skin_yellow"] then skinColor = Color3.fromRGB(255,230,50)
+	end
+	if skinColor then
+		for _, part in ipairs(char:GetChildren()) do
+			if part:IsA("Part") and part.Name ~= "HumanoidRootPart" then
+				part.Color = skinColor
+			end
+		end
+	end
+
+	-- Trails
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		if items["trail_star"] then
+			local sp = hrp:FindFirstChildOfClass("Sparkles") or Instance.new("Sparkles")
+			sp.SparkleColor = Color3.fromRGB(255,255,100)
+			sp.Parent = hrp
+		end
+		if items["trail_fire"] then
+			local fire = hrp:FindFirstChildOfClass("Fire") or Instance.new("Fire")
+			fire.Color = Color3.fromRGB(255,80,0)
+			fire.SecondaryColor = Color3.fromRGB(255,200,0)
+			fire.Parent = hrp
+		end
+	end
+
+	-- Gacha crown (cosmetic item, different from king crown)
+	if items["crown_gold"] then
+		local head = char:FindFirstChild("Head")
+		if head then
+			local existing = head:FindFirstChild("GachaCrown")
+			if not existing then
+				local crown = Instance.new("Part")
+				crown.Name = "GachaCrown"
+				crown.Size = Vector3.new(1.8, 0.5, 1.8)
+				crown.Shape = Enum.PartType.Cylinder
+				crown.Color = Color3.fromRGB(255,200,0)
+				crown.Material = Enum.Material.Neon
+				crown.Anchored = false
+				crown.CanCollide = false
+				crown.Parent = char
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = head
+				weld.Part1 = crown
+				weld.Parent = crown
+				crown.CFrame = head.CFrame * CFrame.new(0, 0.9, 0) * CFrame.Angles(0, 0, math.pi/2)
+			end
+		end
+	end
+
+	-- Rainbow aura
+	if items["aura_rainbow"] then
+		local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+		if torso then
+			local existing = torso:FindFirstChild("RainbowAura")
+			if not existing then
+				local ring = Instance.new("Part")
+				ring.Name = "RainbowAura"
+				ring.Size = Vector3.new(0.3, 5, 5)
+				ring.Shape = Enum.PartType.Cylinder
+				ring.Color = Color3.fromRGB(255,100,200)
+				ring.Material = Enum.Material.Neon
+				ring.Transparency = 0.4
+				ring.Anchored = false
+				ring.CanCollide = false
+				ring.Parent = char
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = torso
+				weld.Part1 = ring
+				weld.Parent = ring
+				ring.CFrame = torso.CFrame
+			end
+		end
+	end
+end
+
+local function applyKingCrown(player, char)
+	-- Remove existing king crown from this character
+	local head = char:FindFirstChild("Head")
+	if head then
+		local old = head:FindFirstChild("KingCrown")
+		if old then old:Destroy() end
+	end
+	-- Only apply if this player is current king
+	if currentKingId ~= player.UserId then return end
+	if not head then return end
+	local crown = Instance.new("Part")
+	crown.Name = "KingCrown"
+	crown.Size = Vector3.new(2.2, 0.7, 2.2)
+	crown.Shape = Enum.PartType.Cylinder
+	crown.Color = Color3.fromRGB(255,215,0)
+	crown.Material = Enum.Material.Neon
+	crown.Anchored = false
+	crown.CanCollide = false
+	crown.Parent = char
+	local pl = Instance.new("PointLight")
+	pl.Brightness = 3; pl.Range = 12; pl.Color = Color3.fromRGB(255,215,0); pl.Parent = crown
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = head
+	weld.Part1 = crown
+	weld.Parent = crown
+	crown.CFrame = head.CFrame * CFrame.new(0, 1.2, 0) * CFrame.Angles(0, 0, math.pi/2)
+end
+
+local function updateKingCrown(newKingId)
+	if currentKingId == newKingId then return end
+	-- Remove crown from old king
+	if currentKingId then
+		local oldKing = Players:GetPlayerByUserId(currentKingId)
+		if oldKing and oldKing.Character then
+			local head = oldKing.Character:FindFirstChild("Head")
+			if head then
+				local c = head:FindFirstChild("KingCrown")
+				if c then c:Destroy() end
+			end
+		end
+	end
+	currentKingId = newKingId
+	-- Apply crown to new king
+	if newKingId then
+		local newKing = Players:GetPlayerByUserId(newKingId)
+		if newKing and newKing.Character then
+			applyKingCrown(newKing, newKing.Character)
+		end
+	end
+end
+
 local function onPlayerAdded(player)
 	local ls = Instance.new("Folder"); ls.Name="leaderstats"; ls.Parent=player
 	local cv = Instance.new("IntValue"); cv.Name="Coins"; cv.Parent=ls
@@ -84,10 +243,13 @@ local function onPlayerAdded(player)
 		coins=0, total=0, radius=10, multiplier=1, magnetRadius=0,
 		combo=0, lastCollect=0, comboMultiplier=1,
 		upgrades={}, boosted=false, slowed=false, taxCooldown=false,
-		lastWave=1,
+		lastWave=1, gachaItems={},
 	}
 	player.CharacterAdded:Connect(function(char)
-		task.wait(0.1); applySpeed(player)
+		task.wait(0.1)
+		applySpeed(player)
+		applyCosmetics(player, char)
+		applyKingCrown(player, char)
 	end)
 end
 
@@ -152,6 +314,55 @@ fnPurchase.OnServerInvoke = function(player, id)
 	fireUpdate(player)
 	return {success=true,message="Bought: "..upg.label,upgrades=data.upgrades}
 end
+
+-- ===== GACHA SPIN =====
+fnGachaSpin.OnServerInvoke = function(player)
+	local data = playerData[player.UserId]
+	if not data then return {success=false, message="No data"} end
+	if data.coins < 200 then return {success=false, message="Need 🪙200 to spin!"} end
+	data.coins = data.coins - 200
+	-- Weighted random
+	local roll = math.random() * GACHA_TOTAL_WEIGHT
+	local cum = 0
+	local chosen = GACHA_ITEMS[1]
+	for _, item in ipairs(GACHA_ITEMS) do
+		cum = cum + item.weight
+		if roll <= cum then chosen = item; break end
+	end
+	local alreadyOwned = data.gachaItems[chosen.id]
+	data.gachaItems[chosen.id] = true
+	fireUpdate(player)
+	-- Apply cosmetic immediately if character exists
+	if player.Character then
+		applyCosmetics(player, player.Character)
+	end
+	local msg = alreadyOwned and (chosen.label.." (duplicate)") or chosen.label
+	return {success=true, item=chosen, message=msg, alreadyOwned=alreadyOwned, gachaItems=data.gachaItems}
+end
+
+-- ===== RANKING BROADCAST =====
+task.spawn(function()
+	while true do
+		task.wait(2)
+		-- Build top 5 list
+		local list = {}
+		for _, player in ipairs(Players:GetPlayers()) do
+			local data = playerData[player.UserId]
+			if data then
+				table.insert(list, {name=player.Name, coins=data.coins, userId=player.UserId})
+			end
+		end
+		table.sort(list, function(a,b) return a.coins > b.coins end)
+		local top5 = {}
+		for i = 1, math.min(5, #list) do
+			table.insert(top5, {name=list[i].name, coins=list[i].coins})
+		end
+		evRankingUpdate:FireAllClients(top5)
+		-- Update king crown
+		local kingId = list[1] and list[1].userId or nil
+		updateKingCrown(kingId)
+	end
+end)
 
 -- ===== WAVE SYSTEM =====
 
@@ -485,6 +696,44 @@ task.spawn(function()
 					end
 					root.CFrame=CFrame.new(0,5,0)
 					break
+				end
+			end
+
+			-- ⚔️ PvP Battle Zone steal
+			local inBattle = (pos - BATTLE_ZONE_CENTER).Magnitude < BATTLE_ZONE_RADIUS
+			if inBattle then
+				for _, other in ipairs(Players:GetPlayers()) do
+					if other == player then continue end
+					local otherData = playerData[other.UserId]
+					if not otherData then continue end
+					local otherChar = other.Character
+					if not otherChar then continue end
+					local otherRoot = otherChar:FindFirstChild("HumanoidRootPart")
+					if not otherRoot then continue end
+					local otherPos = otherRoot.Position
+					-- Check other also in battle zone
+					local otherInBattle = (otherPos - BATTLE_ZONE_CENTER).Magnitude < BATTLE_ZONE_RADIUS
+					if not otherInBattle then continue end
+					-- Check proximity
+					if (pos - otherPos).Magnitude > 8 then continue end
+					-- Check cooldown
+					local ids = tostring(math.min(player.UserId, other.UserId)).."_"..tostring(math.max(player.UserId, other.UserId))
+					local lastSteal = pvpCooldowns[ids] or 0
+					if tick() - lastSteal < 3 then continue end
+					pvpCooldowns[ids] = tick()
+					-- Steal 5% from other player
+					local stolen = math.floor(otherData.coins * 0.05)
+					if stolen < 1 then stolen = 1 end
+					if otherData.coins >= stolen then
+						otherData.coins = otherData.coins - stolen
+						data.coins = data.coins + stolen
+						local msg1 = "⚔️ You stole 🪙"..stolen.." from "..other.Name.."!"
+						local msg2 = "⚔️ "..player.Name.." stole 🪙"..stolen.." from you!"
+						evAnnounce:FireClient(player, msg1)
+						evAnnounce:FireClient(other, msg2)
+						fireUpdate(player)
+						fireUpdate(other)
+					end
 				end
 			end
 
