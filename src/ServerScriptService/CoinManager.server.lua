@@ -1,22 +1,17 @@
--- CoinManager: simplified, robust server script
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
--- Create RemoteEvents directly (no module indirection)
 local function makeRemote(cls, name)
 	local r = RS:FindFirstChild(name)
-	if not r then
-		r = Instance.new(cls); r.Name = name; r.Parent = RS
-	end
+	if not r then r = Instance.new(cls); r.Name = name; r.Parent = RS end
 	return r
 end
+local evCoinsUpdated = makeRemote("RemoteEvent",    "CoinsUpdated")
+local evShowEffect   = makeRemote("RemoteEvent",    "ShowEffect")
+local evAnnounce     = makeRemote("RemoteEvent",    "EventAnnounce")
+local fnPurchase     = makeRemote("RemoteFunction", "PurchaseUpgrade")
 
-local evCoinsUpdated  = makeRemote("RemoteEvent",    "CoinsUpdated")
-local evShowEffect    = makeRemote("RemoteEvent",    "ShowEffect")
-local evAnnounce      = makeRemote("RemoteEvent",    "EventAnnounce")
-local fnPurchase      = makeRemote("RemoteFunction", "PurchaseUpgrade")
-
--- Player data
 local playerData = {}
 
 local UPGRADES = {
@@ -43,72 +38,77 @@ local coins = {}
 local MAX_COINS = 150
 local coinFolder = Instance.new("Folder"); coinFolder.Name="Coins"; coinFolder.Parent=workspace
 
--- Speed from coins: base 16, +1 per 50 coins, max 60
+-- Moving pads table: {part, velX, velZ, speed}
+local movingPads = {}
+-- Thieves table: {model, target}
+local thieves = {}
+
 local function calcSpeed(data)
-	local bonus = math.min(math.floor(data.total / 50), 44)
-	return 16 + bonus
+	return math.min(16 + math.floor(data.total / 50), 60)
+end
+
+local function getWave(total)
+	if total >= 8000 then return 5
+	elseif total >= 3000 then return 4
+	elseif total >= 800 then return 3
+	elseif total >= 200 then return 2
+	else return 1 end
 end
 
 local function fireUpdate(player)
 	local data = playerData[player.UserId]
 	if not data then return end
 	local ls = player:FindFirstChild("leaderstats")
-	if ls then ls.Coins.Value = data.coins; ls.Total.Value = data.total end
+	if ls then ls.Coins.Value=data.coins; ls.Total.Value=data.total end
 	evCoinsUpdated:FireClient(player, {
 		coins=data.coins, combo=data.combo, comboMultiplier=data.comboMultiplier,
 		multiplier=data.multiplier, magnetRadius=data.magnetRadius,
-		upgrades=data.upgrades, speed=calcSpeed(data),
+		upgrades=data.upgrades, speed=calcSpeed(data), wave=getWave(data.total),
 	})
 end
 
 local function applySpeed(player)
 	local data = playerData[player.UserId]
-	if not data then return end
+	if not data or data.boosted or data.slowed then return end
 	local char = player.Character
 	if not char then return end
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	if hum then hum.WalkSpeed = calcSpeed(data) end
 end
 
--- PlayerAdded - connect IMMEDIATELY before anything else
 local function onPlayerAdded(player)
 	local ls = Instance.new("Folder"); ls.Name="leaderstats"; ls.Parent=player
 	local cv = Instance.new("IntValue"); cv.Name="Coins"; cv.Parent=ls
 	local tv = Instance.new("IntValue"); tv.Name="Total"; tv.Parent=ls
-
 	playerData[player.UserId] = {
 		coins=0, total=0, radius=10, multiplier=1, magnetRadius=0,
 		combo=0, lastCollect=0, comboMultiplier=1,
 		upgrades={}, boosted=false, slowed=false, taxCooldown=false,
+		lastWave=1,
 	}
-
 	player.CharacterAdded:Connect(function(char)
-		task.wait(0.1)
-		applySpeed(player)
+		task.wait(0.1); applySpeed(player)
 	end)
 end
 
 for _, p in ipairs(Players:GetPlayers()) do onPlayerAdded(p) end
 Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(function(p) playerData[p.UserId] = nil end)
+Players.PlayerRemoving:Connect(function(p) playerData[p.UserId]=nil end)
 
 -- Coins
 local function spawnCoin()
 	if #coins >= MAX_COINS then return end
-	local roll = math.random(100); local cum=0; local ct=COIN_TYPES[1]
-	for _, t in ipairs(COIN_TYPES) do
-		cum=cum+t.weight; if roll<=cum then ct=t; break end
-	end
-	local isLucky = math.random() < 0.04
-	local value = ct.value * (isLucky and 10 or 1)
+	local roll=math.random(100); local cum=0; local ct=COIN_TYPES[1]
+	for _,t in ipairs(COIN_TYPES) do cum=cum+t.weight; if roll<=cum then ct=t; break end end
+	local isLucky = math.random()<0.04
+	local value = ct.value*(isLucky and 10 or 1)
 	local part = Instance.new("Part")
-	part.Shape = Enum.PartType.Ball
-	part.Size = Vector3.new(ct.size, ct.size, ct.size)
-	part.Color = isLucky and Color3.fromRGB(255,255,100) or ct.color
-	part.Material = (ct.name=="Common") and Enum.Material.SmoothPlastic or Enum.Material.Neon
-	part.Anchored = true; part.CanCollide = false; part.CastShadow = false
-	part.Position = Vector3.new(math.random(-180,180), 1.5, math.random(-180,180))
-	part.Parent = coinFolder
+	part.Shape=Enum.PartType.Ball; part.Size=Vector3.new(ct.size,ct.size,ct.size)
+	part.Color=isLucky and Color3.fromRGB(255,255,100) or ct.color
+	part.Material=(ct.name=="Common") and Enum.Material.SmoothPlastic or Enum.Material.Neon
+	part.Anchored=true; part.CanCollide=false; part.CastShadow=false
+	part.Position=Vector3.new(math.random(-180,180),1.5,math.random(-180,180))
+	part.Parent=coinFolder
 	if isLucky or ct.name=="Legendary" then
 		local sp=Instance.new("Sparkles"); sp.SparkleColor=part.Color; sp.Parent=part
 	end
@@ -116,8 +116,7 @@ local function spawnCoin()
 	local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,1,0); lbl.BackgroundTransparency=1
 	lbl.Text=(isLucky and "⭐" or "+")..value; lbl.TextColor3=Color3.new(1,1,1)
 	lbl.TextStrokeTransparency=0; lbl.TextScaled=true; lbl.Font=Enum.Font.GothamBold; lbl.Parent=bb
-	local entry = {part=part, value=value, lucky=isLucky}
-	table.insert(coins, entry)
+	table.insert(coins, {part=part,value=value,lucky=isLucky})
 end
 
 local function removeCoin(entry)
@@ -129,61 +128,159 @@ local function collectCoin(player, entry)
 	local data = playerData[player.UserId]
 	if not data then return end
 	local now = tick()
-	if now - data.lastCollect < 1.5 then
-		data.combo = math.min(data.combo+1, 50)
-	else
-		data.combo = 1
-	end
-	data.lastCollect = now
-	data.comboMultiplier = math.min(1 + math.floor(data.combo/10), 5)
-	local earned = entry.value * data.multiplier * data.comboMultiplier
-	data.coins = data.coins + earned
-	data.total = data.total + earned
-	evShowEffect:FireClient(player, {
+	if now-data.lastCollect<1.5 then data.combo=math.min(data.combo+1,50) else data.combo=1 end
+	data.lastCollect=now
+	data.comboMultiplier=math.min(1+math.floor(data.combo/10),5)
+	local earned=entry.value*data.multiplier*data.comboMultiplier
+	data.coins=data.coins+earned; data.total=data.total+earned
+	evShowEffect:FireClient(player,{
 		type=entry.lucky and "lucky" or "collect",
 		position=entry.part and entry.part.Position or Vector3.new(0,2,0),
 		value=earned, combo=data.combo,
 	})
-	-- Speed scales with total coins
 	applySpeed(player)
 	fireUpdate(player)
 end
 
--- Purchase
 fnPurchase.OnServerInvoke = function(player, id)
-	local data = playerData[player.UserId]
+	local data=playerData[player.UserId]
 	if not data then return {success=false,message="No data"} end
-	local upg = UPGRADES[id]
-	if not upg then return {success=false,message="Unknown upgrade"} end
+	local upg=UPGRADES[id]; if not upg then return {success=false,message="Unknown"} end
 	if data.upgrades[id] then return {success=false,message="Already owned!"} end
-	if data.coins < upg.cost then return {success=false,message="Need 🪙"..upg.cost} end
-	data.coins = data.coins - upg.cost
-	data.upgrades[id] = true
-	upg.apply(data)
+	if data.coins<upg.cost then return {success=false,message="Need 🪙"..upg.cost} end
+	data.coins=data.coins-upg.cost; data.upgrades[id]=true; upg.apply(data)
 	fireUpdate(player)
-	return {success=true, message="Bought: "..upg.label, upgrades=data.upgrades}
+	return {success=true,message="Bought: "..upg.label,upgrades=data.upgrades}
+end
+
+-- ===== WAVE SYSTEM =====
+
+local function makePad(name, color, pos, size)
+	local p = Instance.new("Part")
+	p.Name=name; p.Size=Vector3.new(size,0.6,size); p.Position=pos
+	p.Anchored=true; p.CanCollide=true; p.Color=color
+	p.Material=Enum.Material.Neon; p.Parent=workspace
+	local bb=Instance.new("BillboardGui"); bb.Size=UDim2.new(0,150,0,50)
+	bb.StudsOffset=Vector3.new(0,4,0); bb.AlwaysOnTop=true; bb.Parent=p
+	local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,1,0)
+	lbl.BackgroundColor3=Color3.fromRGB(0,0,0); lbl.BackgroundTransparency=0.35
+	lbl.TextScaled=true; lbl.Font=Enum.Font.GothamBold
+	lbl.TextStrokeTransparency=0; lbl.Parent=bb
+	Instance.new("UICorner",lbl).CornerRadius=UDim.new(0,8)
+	local pl=Instance.new("PointLight"); pl.Brightness=2; pl.Range=14; pl.Color=color; pl.Parent=p
+	if name=="SlowZone" then
+		lbl.Text="🐌 SLOW!"; lbl.TextColor3=Color3.fromRGB(200,100,255)
+	elseif name=="TaxZone" then
+		lbl.Text="💸 TAX -20%"; lbl.TextColor3=Color3.fromRGB(255,80,80)
+	end
+	return p
+end
+
+local function addMovingPad(pad, speed)
+	local angle = math.random()*math.pi*2
+	table.insert(movingPads, {
+		part=pad, velX=math.cos(angle)*speed, velZ=math.sin(angle)*speed
+	})
+end
+
+-- Wave event flags
+local waveActivated = {[1]=false,[2]=false,[3]=false,[4]=false,[5]=false}
+
+local function activateWave2(boostPads, slowZones)
+	if waveActivated[2] then return end
+	waveActivated[2] = true
+	evAnnounce:FireAllClients("⚠️ WAVE 2! Slow zones are moving!")
+	-- Make existing slow zones move
+	for _, pad in ipairs(slowZones) do
+		addMovingPad(pad, 2)
+	end
+end
+
+local function activateWave3(slowZones, taxZones)
+	if waveActivated[3] then return end
+	waveActivated[3] = true
+	evAnnounce:FireAllClients("🔥 WAVE 3! Tax zones moving + New slow zones!")
+	-- Move tax zones
+	for _, pad in ipairs(taxZones) do addMovingPad(pad, 2.5) end
+	-- Spawn 2 extra slow zones
+	for i=1,2 do
+		local pos=Vector3.new(math.random(-150,150),0.3,math.random(-150,150))
+		local pad=makePad("SlowZone",Color3.fromRGB(80,0,160),pos,16)
+		table.insert(slowZones, pad)
+		addMovingPad(pad, 3)
+	end
+end
+
+local function spawnThief(index)
+	-- Simple thief NPC: grey ball that chases player
+	local model = Instance.new("Model"); model.Name="Thief"..index; model.Parent=workspace
+	local body = Instance.new("Part"); body.Name="HumanoidRootPart"
+	body.Shape=Enum.PartType.Ball; body.Size=Vector3.new(3,3,3)
+	body.Color=Color3.fromRGB(80,80,80); body.Material=Enum.Material.Neon
+	body.Anchored=true; body.CanCollide=false
+	body.Position=Vector3.new(math.random(-150,150),2,math.random(-150,150))
+	body.Parent=model
+	-- Label
+	local bb=Instance.new("BillboardGui"); bb.Size=UDim2.new(0,140,0,45)
+	bb.StudsOffset=Vector3.new(0,3,0); bb.AlwaysOnTop=true; bb.Parent=body
+	local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,1,0)
+	lbl.BackgroundColor3=Color3.fromRGB(0,0,0); lbl.BackgroundTransparency=0.3
+	lbl.Text="👻 THIEF! -10%"; lbl.TextColor3=Color3.fromRGB(255,50,50)
+	lbl.TextScaled=true; lbl.Font=Enum.Font.GothamBold; lbl.TextStrokeTransparency=0; lbl.Parent=bb
+	Instance.new("UICorner",lbl).CornerRadius=UDim.new(0,8)
+	local pl=Instance.new("PointLight"); pl.Brightness=3; pl.Range=16
+	pl.Color=Color3.fromRGB(200,50,50); pl.Parent=body
+	table.insert(thieves, {body=body, stealCooldown=false})
+	return model
+end
+
+local function activateWave4()
+	if waveActivated[4] then return end
+	waveActivated[4] = true
+	evAnnounce:FireAllClients("💀 WAVE 4! A COIN THIEF has appeared!")
+	spawnThief(1)
+end
+
+local function activateWave5(slowZones, taxZones)
+	if waveActivated[5] then return end
+	waveActivated[5] = true
+	evAnnounce:FireAllClients("🌋 WAVE 5! MAXIMUM CHAOS! Everything moves FAST!")
+	-- Speed up all moving pads
+	for _, mp in ipairs(movingPads) do
+		local spd = math.sqrt(mp.velX^2+mp.velZ^2)
+		local scale = 5/math.max(spd,0.1)
+		mp.velX=mp.velX*scale; mp.velZ=mp.velZ*scale
+	end
+	-- Add more pads
+	for i=1,3 do
+		local pos=Vector3.new(math.random(-150,150),0.3,math.random(-150,150))
+		local pad=makePad("TaxZone",Color3.fromRGB(200,30,30),pos,14)
+		table.insert(taxZones,pad); addMovingPad(pad, 5)
+	end
+	-- Second thief
+	spawnThief(2)
 end
 
 -- Coin spinning
 task.spawn(function()
-	local angle = 0
+	local angle=0
 	while true do
-		task.wait(0.05); angle = angle + 0.05
-		for _, entry in ipairs(coins) do
-			if entry.part and entry.part.Parent then
-				entry.part.CFrame = CFrame.new(entry.part.Position) * CFrame.Angles(0, angle, 0)
+		task.wait(0.05); angle=angle+0.05
+		for _,e in ipairs(coins) do
+			if e.part and e.part.Parent then
+				e.part.CFrame=CFrame.new(e.part.Position)*CFrame.Angles(0,angle,0)
 			end
 		end
 	end
 end)
 
--- Spawn loop
+-- Coin spawn
 task.spawn(function()
 	for i=1,60 do spawnCoin() end
 	while true do task.wait(1.2); spawnCoin(); spawnCoin() end
 end)
 
--- Coin rain every 45s
+-- Coin rain
 task.spawn(function()
 	while true do
 		task.wait(45)
@@ -192,25 +289,91 @@ task.spawn(function()
 	end
 end)
 
--- Main loop (0.1s tick)
+-- ===== MAIN GAME LOOP =====
 task.spawn(function()
-	-- Wait for map to be ready
-	task.wait(2)
+	task.wait(2) -- wait for map
 
-	-- Cache pad positions
-	local boostPads, slowZones, taxZones, holes = {}, {}, {}, {}
-	for _, obj in ipairs(workspace:GetChildren()) do
-		local n = obj.Name
-		if n=="BoostPad" then table.insert(boostPads, obj)
-		elseif n=="SlowZone" then table.insert(slowZones, obj)
-		elseif n=="TaxZone" then table.insert(taxZones, obj)
-		elseif n=="Hole" then table.insert(holes, obj)
+	-- Cache initial pads
+	local boostPads, slowZones, taxZones, holes = {},{},{},{}
+	for _,obj in ipairs(workspace:GetChildren()) do
+		local n=obj.Name
+		if n=="BoostPad" then table.insert(boostPads,obj)
+		elseif n=="SlowZone" then table.insert(slowZones,obj)
+		elseif n=="TaxZone" then table.insert(taxZones,obj)
+		elseif n=="Hole" then table.insert(holes,obj)
 		end
 	end
-	print("Pads: boost="..#boostPads.." slow="..#slowZones.." tax="..#taxZones.." holes="..#holes)
+	print("Pads: boost="..#boostPads.." slow="..#slowZones.." tax="..#taxZones)
+
+	local tick05 = 0 -- 0.5s counter for moving pads & thieves
 
 	while true do
 		task.wait(0.1)
+		tick05 = tick05 + 0.1
+
+		-- ===== MOVE PADS (every 0.1s) =====
+		for _, mp in ipairs(movingPads) do
+			if mp.part and mp.part.Parent then
+				local pos = mp.part.Position
+				local nx = pos.X + mp.velX * 0.1
+				local nz = pos.Z + mp.velZ * 0.1
+				-- Bounce off map edges
+				if nx > 180 or nx < -180 then mp.velX = -mp.velX; nx = math.clamp(nx,-180,180) end
+				if nz > 180 or nz < -180 then mp.velZ = -mp.velZ; nz = math.clamp(nz,-180,180) end
+				mp.part.Position = Vector3.new(nx, pos.Y, nz)
+			end
+		end
+
+		-- ===== THIEF AI (every 0.5s) =====
+		if tick05 >= 0.5 then
+			tick05 = 0
+			-- Find target player (highest coins)
+			local target, targetData, targetPos = nil, nil, nil
+			for _, player in ipairs(Players:GetPlayers()) do
+				local data = playerData[player.UserId]
+				if data and (not targetData or data.coins > targetData.coins) then
+					local char = player.Character
+					if char and char:FindFirstChild("HumanoidRootPart") then
+						target = player; targetData = data
+						targetPos = char.HumanoidRootPart.Position
+					end
+				end
+			end
+
+			for _, thief in ipairs(thieves) do
+				if thief.body and thief.body.Parent then
+					if targetPos then
+						-- Chase player
+						local tpos = thief.body.Position
+						local dir = (targetPos - tpos)
+						local dist = dir.Magnitude
+						local wave = getWave(targetData and targetData.total or 0)
+						local thiefSpeed = (wave >= 5) and 6 or 4
+						if dist > 2 then
+							local move = dir.Unit * math.min(thiefSpeed, dist)
+							thief.body.Position = Vector3.new(tpos.X+move.X, 2, tpos.Z+move.Z)
+						end
+
+						-- Steal if close
+						if dist < 5 and not thief.stealCooldown then
+							thief.stealCooldown = true
+							if targetData and targetData.coins > 0 then
+								local stolen = math.floor(targetData.coins * 0.10)
+								if stolen > 0 then
+									targetData.coins = targetData.coins - stolen
+									evAnnounce:FireClient(target, "👻 THIEF stole 🪙"..stolen.."!")
+									evShowEffect:FireClient(target,{type="tax",position=targetPos,value=-stolen})
+									fireUpdate(target)
+								end
+							end
+							task.delay(2, function() thief.stealCooldown = false end)
+						end
+					end
+				end
+			end
+		end
+
+		-- ===== PLAYER LOOP =====
 		for _, player in ipairs(Players:GetPlayers()) do
 			local data = playerData[player.UserId]
 			if not data then continue end
@@ -221,19 +384,32 @@ task.spawn(function()
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			if not hum then continue end
 			local pos = root.Position
+			local wave = getWave(data.total)
 
-			-- ⚡ Boost
+			-- Wave transitions
+			if wave >= 2 and not waveActivated[2] then activateWave2(boostPads, slowZones) end
+			if wave >= 3 and not waveActivated[3] then activateWave3(slowZones, taxZones) end
+			if wave >= 4 and not waveActivated[4] then activateWave4() end
+			if wave >= 5 and not waveActivated[5] then activateWave5(slowZones, taxZones) end
+
+			-- Wave changed notification
+			if wave ~= data.lastWave then
+				data.lastWave = wave
+				fireUpdate(player)
+			end
+
+			-- ⚡ Boost pads
 			if not data.boosted then
 				for _, pad in ipairs(boostPads) do
-					if (pad.Position - pos).Magnitude < 7 then
-						data.boosted = true
-						hum.WalkSpeed = calcSpeed(data) * 2.5
-						evAnnounce:FireClient(player, "⚡ SPEED BOOST! 5 seconds!")
-						task.delay(5, function()
-							data.boosted = false
+					if pad.Parent and (pad.Position-pos).Magnitude < 7 then
+						data.boosted=true
+						hum.WalkSpeed=calcSpeed(data)*2.5
+						evAnnounce:FireClient(player,"⚡ SPEED BOOST! 5 seconds!")
+						task.delay(5,function()
+							data.boosted=false
 							if not data.slowed then
-								local h = char and char:FindFirstChildOfClass("Humanoid")
-								if h then h.WalkSpeed = calcSpeed(data) end
+								local h=char and char:FindFirstChildOfClass("Humanoid")
+								if h then h.WalkSpeed=calcSpeed(data) end
 							end
 						end)
 						break
@@ -241,35 +417,49 @@ task.spawn(function()
 				end
 			end
 
-			-- 🐌 Slow
+			-- 🐌 Slow zones (all slow zones including dynamic ones)
+			local allSlow = slowZones
 			local inSlow = false
-			for _, pad in ipairs(slowZones) do
-				if (Vector3.new(pad.Position.X,pos.Y,pad.Position.Z)-pos).Magnitude < 9 then
-					inSlow = true; break
+			for _, pad in ipairs(allSlow) do
+				if pad.Parent then
+					if (Vector3.new(pad.Position.X,pos.Y,pad.Position.Z)-pos).Magnitude < 9 then
+						inSlow=true; break
+					end
+				end
+			end
+			-- Also check dynamic pads by name
+			if not inSlow then
+				for _, mp in ipairs(movingPads) do
+					if mp.part and mp.part.Parent and mp.part.Name=="SlowZone" then
+						if (Vector3.new(mp.part.Position.X,pos.Y,mp.part.Position.Z)-pos).Magnitude < 9 then
+							inSlow=true; break
+						end
+					end
 				end
 			end
 			if inSlow and not data.slowed then
-				data.slowed = true
-				if not data.boosted then hum.WalkSpeed = 5 end
-				evAnnounce:FireClient(player, "🐌 Slow zone! Escape!")
+				data.slowed=true
+				if not data.boosted then hum.WalkSpeed=math.max(5, calcSpeed(data)*0.3) end
+				evAnnounce:FireClient(player,"🐌 SLOW ZONE! Escape!")
 			elseif not inSlow and data.slowed then
-				data.slowed = false
-				if not data.boosted then hum.WalkSpeed = calcSpeed(data) end
+				data.slowed=false
+				if not data.boosted then hum.WalkSpeed=calcSpeed(data) end
 			end
 
-			-- 💸 Tax
+			-- 💸 Tax zones
 			if not data.taxCooldown then
-				for _, pad in ipairs(taxZones) do
-					if (Vector3.new(pad.Position.X,pos.Y,pad.Position.Z)-pos).Magnitude < 9 then
-						data.taxCooldown = true
-						local lost = math.floor(data.coins * 0.20)
-						if lost > 0 then
-							data.coins = data.coins - lost
-							evAnnounce:FireClient(player, "💸 TAXED! Lost 🪙"..lost.."!")
-							evShowEffect:FireClient(player, {type="tax", position=pos, value=-lost})
+				local allTax = taxZones
+				for _, pad in ipairs(allTax) do
+					if pad.Parent and (Vector3.new(pad.Position.X,pos.Y,pad.Position.Z)-pos).Magnitude < 9 then
+						data.taxCooldown=true
+						local lost=math.floor(data.coins*0.20)
+						if lost>0 then
+							data.coins=data.coins-lost
+							evAnnounce:FireClient(player,"💸 TAXED! Lost 🪙"..lost.."!")
+							evShowEffect:FireClient(player,{type="tax",position=pos,value=-lost})
 							fireUpdate(player)
 						end
-						task.delay(3, function() data.taxCooldown = false end)
+						task.delay(3,function() data.taxCooldown=false end)
 						break
 					end
 				end
@@ -277,44 +467,41 @@ task.spawn(function()
 
 			-- 🕳️ Holes
 			for _, hole in ipairs(holes) do
-				local hp = hole.Position
+				local hp=hole.Position
 				if (Vector3.new(hp.X,pos.Y,hp.Z)-pos).Magnitude < 7 then
-					local lost = math.floor(data.coins * 0.30)
-					if lost > 0 then
-						data.coins = data.coins - lost
-						evAnnounce:FireClient(player, "🕳️ HOLE! Lost 🪙"..lost.."!")
+					local lost=math.floor(data.coins*0.30)
+					if lost>0 then
+						data.coins=data.coins-lost
+						evAnnounce:FireClient(player,"🕳️ HOLE! Lost 🪙"..lost.."!")
 						fireUpdate(player)
 					end
-					root.CFrame = CFrame.new(0, 5, 0)
+					root.CFrame=CFrame.new(0,5,0)
 					break
 				end
 			end
 
 			-- 🧲 Magnet
-			if data.magnetRadius > 0 then
-				for _, entry in ipairs(coins) do
+			if data.magnetRadius>0 then
+				for _,entry in ipairs(coins) do
 					if entry.part and entry.part.Parent then
-						local dist = (entry.part.Position - pos).Magnitude
-						if dist < data.magnetRadius and dist > data.radius then
-							entry.part.Position = entry.part.Position + (pos - entry.part.Position).Unit * 3
+						local dist=(entry.part.Position-pos).Magnitude
+						if dist<data.magnetRadius and dist>data.radius then
+							entry.part.Position=entry.part.Position+(pos-entry.part.Position).Unit*3
 						end
 					end
 				end
 			end
 
 			-- Auto-collect
-			local toCollect = {}
-			for _, entry in ipairs(coins) do
+			local toCollect={}
+			for _,entry in ipairs(coins) do
 				if entry.part and entry.part.Parent then
-					if (entry.part.Position - pos).Magnitude < data.radius then
-						table.insert(toCollect, entry)
+					if (entry.part.Position-pos).Magnitude<data.radius then
+						table.insert(toCollect,entry)
 					end
 				end
 			end
-			for _, entry in ipairs(toCollect) do
-				collectCoin(player, entry)
-				removeCoin(entry)
-			end
+			for _,entry in ipairs(toCollect) do collectCoin(player,entry); removeCoin(entry) end
 		end
 	end
 end)
