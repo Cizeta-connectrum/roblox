@@ -1,374 +1,171 @@
--- ShopController.client.lua
--- Handles the shop UI and upgrade purchases
-
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local RemoteEventsModule = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RemoteEvents")
-local RemoteEvents = require(RemoteEventsModule)
-
-local PurchaseUpgrade = RemoteEvents.PurchaseUpgrade
-local UpdateCoins = RemoteEvents.UpdateCoins
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local Remotes = require(game:GetService("ReplicatedStorage"):WaitForChild("Remotes"))
 
-local currentCoins = 0
-local purchasedUpgrades = {}
-local shopOpen = false
-
--- Upgrade definitions for UI
 local UPGRADES = {
-	{ id = "speed1",      cost = 50,   name = "Speed Boost I",        desc = "Move faster",                  icon = "⚡" },
-	{ id = "speed2",      cost = 200,  name = "Speed Boost II",       desc = "Move even faster",             icon = "⚡⚡" },
-	{ id = "speed3",      cost = 500,  name = "Speed Boost III",      desc = "Blazing fast speed",           icon = "⚡⚡⚡" },
-	{ id = "radius1",     cost = 100,  name = "Collection Radius I",  desc = "Collect coins from farther",   icon = "🔵" },
-	{ id = "radius2",     cost = 400,  name = "Collection Radius II", desc = "Large collection area",        icon = "🔵🔵" },
-	{ id = "radius3",     cost = 1000, name = "Collection Radius III",desc = "Massive collection area",      icon = "🔵🔵🔵" },
-	{ id = "multiplier2", cost = 300,  name = "2x Coins",             desc = "Double all coin values",       icon = "x2" },
-	{ id = "multiplier3", cost = 800,  name = "3x Coins",             desc = "Triple all coin values",       icon = "x3" },
-	{ id = "multiplier5", cost = 2000, name = "5x Coins",             desc = "5x all coin values",           icon = "x5" },
-	{ id = "magnet1",     cost = 500,  name = "Coin Magnet I",        desc = "Coins fly toward you",         icon = "🧲" },
-	{ id = "magnet2",     cost = 1500, name = "Coin Magnet II",       desc = "Stronger magnet, more range",  icon = "🧲🧲" },
+	{id="speed1",  cost=50,    label="⚡ Speed I",    desc="+20% Speed"},
+	{id="speed2",  cost=200,   label="⚡ Speed II",   desc="+50% Speed"},
+	{id="speed3",  cost=600,   label="⚡ Speed III",  desc="+100% Speed"},
+	{id="speed4",  cost=2000,  label="⚡ Speed MAX",  desc="+200% Speed"},
+	{id="radius1", cost=100,   label="🔵 Radius I",   desc="Bigger auto-collect"},
+	{id="radius2", cost=400,   label="🔵 Radius II",  desc="Huge auto-collect"},
+	{id="radius3", cost=1500,  label="🔵 Radius MAX", desc="Massive collect"},
+	{id="multi2",  cost=300,   label="✨ 2x Coins",   desc="Double all coins"},
+	{id="multi3",  cost=1000,  label="✨ 3x Coins",   desc="Triple all coins"},
+	{id="multi5",  cost=3000,  label="✨ 5x Coins",   desc="5x all coins"},
+	{id="multi10", cost=10000, label="✨ 10x Coins",  desc="10x all coins"},
+	{id="magnet1", cost=500,   label="🧲 Magnet I",   desc="Pulls coins from 25 studs"},
+	{id="magnet2", cost=2000,  label="🧲 Magnet II",  desc="Pulls from 50 studs"},
+	{id="magnet3", cost=8000,  label="🧲 Magnet MAX", desc="Pulls from 100 studs"},
 }
 
--- Build shop UI
-local function createShopUI()
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "ShopGui"
-	screenGui.ResetOnSpawn = false
-	screenGui.Enabled = false
-	screenGui.Parent = playerGui
+local ownedUpgrades = {}
+Remotes:Get("CoinsUpdated").OnClientEvent:Connect(function(data)
+	if data.upgrades then ownedUpgrades = data.upgrades end
+end)
 
-	-- Background overlay
-	local overlay = Instance.new("Frame")
-	overlay.Name = "Overlay"
-	overlay.Size = UDim2.new(1, 0, 1, 0)
-	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
-	overlay.BackgroundTransparency = 0.5
-	overlay.BorderSizePixel = 0
-	overlay.Parent = screenGui
+local gui = Instance.new("ScreenGui")
+gui.Name = "ShopGui"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.Parent = player.PlayerGui
 
-	-- Main frame
-	local mainFrame = Instance.new("Frame")
-	mainFrame.Name = "MainFrame"
-	mainFrame.Size = UDim2.new(0, 550, 0, 600)
-	mainFrame.Position = UDim2.new(0.5, -275, 0.5, -300)
-	mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-	mainFrame.BorderSizePixel = 0
-	mainFrame.Parent = screenGui
+local shopFrame = Instance.new("Frame")
+shopFrame.Size = UDim2.new(0,400,0,540)
+shopFrame.Position = UDim2.new(0.5,-200,0.5,-270)
+shopFrame.BackgroundColor3 = Color3.fromRGB(15,15,30)
+shopFrame.BackgroundTransparency = 0.05
+shopFrame.BorderSizePixel = 0
+shopFrame.Visible = false
+shopFrame.ZIndex = 5
+shopFrame.Parent = gui
+Instance.new("UICorner", shopFrame).CornerRadius = UDim.new(0,16)
 
-	local mainCorner = Instance.new("UICorner")
-	mainCorner.CornerRadius = UDim.new(0, 16)
-	mainCorner.Parent = mainFrame
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1,0,0,54)
+titleBar.BackgroundColor3 = Color3.fromRGB(255,180,0)
+titleBar.BorderSizePixel = 0
+titleBar.ZIndex = 6
+titleBar.Parent = shopFrame
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0,16)
+local titleLbl = Instance.new("TextLabel")
+titleLbl.Size = UDim2.new(1,-50,1,0)
+titleLbl.BackgroundTransparency = 1
+titleLbl.Text = "🏪 UPGRADE SHOP"
+titleLbl.TextColor3 = Color3.fromRGB(0,0,0)
+titleLbl.TextScaled = true
+titleLbl.Font = Enum.Font.GothamBold
+titleLbl.ZIndex = 7
+titleLbl.Parent = titleBar
 
-	local mainStroke = Instance.new("UIStroke")
-	mainStroke.Color = Color3.fromRGB(255, 200, 0)
-	mainStroke.Thickness = 2
-	mainStroke.Parent = mainFrame
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0,38,0,38)
+closeBtn.Position = UDim2.new(1,-44,0,8)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.new(1,1,1)
+closeBtn.TextScaled = true
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.ZIndex = 8
+closeBtn.Parent = shopFrame
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,8)
+closeBtn.Activated:Connect(function() shopFrame.Visible = false end)
 
-	-- Title bar
-	local titleBar = Instance.new("Frame")
-	titleBar.Name = "TitleBar"
-	titleBar.Size = UDim2.new(1, 0, 0, 60)
-	titleBar.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
-	titleBar.BorderSizePixel = 0
-	titleBar.Parent = mainFrame
+local msgLabel = Instance.new("TextLabel")
+msgLabel.Size = UDim2.new(1,-20,0,32)
+msgLabel.Position = UDim2.new(0,10,0,56)
+msgLabel.BackgroundTransparency = 1
+msgLabel.TextColor3 = Color3.fromRGB(100,255,100)
+msgLabel.TextScaled = true
+msgLabel.Font = Enum.Font.Gotham
+msgLabel.ZIndex = 7
+msgLabel.Parent = shopFrame
 
-	local titleCorner = Instance.new("UICorner")
-	titleCorner.CornerRadius = UDim.new(0, 14)
-	titleCorner.Parent = titleBar
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1,-16,1,-96)
+scrollFrame.Position = UDim2.new(0,8,0,90)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 5
+scrollFrame.ZIndex = 6
+scrollFrame.Parent = shopFrame
+Instance.new("UIListLayout", scrollFrame).Padding = UDim.new(0,7)
 
-	-- Fix bottom corners of title bar
-	local titleFix = Instance.new("Frame")
-	titleFix.Size = UDim2.new(1, 0, 0.5, 0)
-	titleFix.Position = UDim2.new(0, 0, 0.5, 0)
-	titleFix.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
-	titleFix.BorderSizePixel = 0
-	titleFix.Parent = titleBar
+local buttons = {}
+local function refreshShop()
+	scrollFrame.CanvasSize = UDim2.new(0,0,0,#UPGRADES*70)
+	for _, b in ipairs(buttons) do b:Destroy() end
+	buttons = {}
+	for _, upg in ipairs(UPGRADES) do
+		local owned = ownedUpgrades[upg.id]
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1,-8,0,62)
+		row.BackgroundColor3 = owned and Color3.fromRGB(30,55,30) or Color3.fromRGB(25,25,45)
+		row.BorderSizePixel = 0; row.ZIndex = 6; row.Parent = scrollFrame
+		Instance.new("UICorner", row).CornerRadius = UDim.new(0,10)
+		table.insert(buttons, row)
 
-	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Size = UDim2.new(1, -60, 1, 0)
-	titleLabel.Position = UDim2.new(0, 10, 0, 0)
-	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = "🪙 COIN SHOP"
-	titleLabel.Font = Enum.Font.GothamBold
-	titleLabel.TextSize = 26
-	titleLabel.TextColor3 = Color3.fromRGB(20, 20, 20)
-	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-	titleLabel.Parent = titleBar
+		local nl = Instance.new("TextLabel")
+		nl.Size=UDim2.new(0.58,0,0.5,0); nl.Position=UDim2.new(0,10,0,4)
+		nl.BackgroundTransparency=1; nl.Text=upg.label
+		nl.TextColor3=owned and Color3.fromRGB(130,255,130) or Color3.new(1,1,1)
+		nl.TextScaled=true; nl.TextXAlignment=Enum.TextXAlignment.Left
+		nl.Font=Enum.Font.GothamBold; nl.ZIndex=7; nl.Parent=row
 
-	-- Close button
-	local closeBtn = Instance.new("TextButton")
-	closeBtn.Name = "CloseButton"
-	closeBtn.Size = UDim2.new(0, 40, 0, 40)
-	closeBtn.Position = UDim2.new(1, -50, 0, 10)
-	closeBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-	closeBtn.Text = "✕"
-	closeBtn.Font = Enum.Font.GothamBold
-	closeBtn.TextSize = 20
-	closeBtn.TextColor3 = Color3.new(1, 1, 1)
-	closeBtn.Parent = mainFrame
+		local dl = Instance.new("TextLabel")
+		dl.Size=UDim2.new(0.58,0,0.38,0); dl.Position=UDim2.new(0,10,0.55,0)
+		dl.BackgroundTransparency=1; dl.Text=upg.desc
+		dl.TextColor3=Color3.fromRGB(160,160,160); dl.TextScaled=true
+		dl.TextXAlignment=Enum.TextXAlignment.Left; dl.Font=Enum.Font.Gotham; dl.ZIndex=7; dl.Parent=row
 
-	local closeBtnCorner = Instance.new("UICorner")
-	closeBtnCorner.CornerRadius = UDim.new(0, 8)
-	closeBtnCorner.Parent = closeBtn
-
-	-- Coins display
-	local coinsDisplay = Instance.new("TextLabel")
-	coinsDisplay.Name = "CoinsDisplay"
-	coinsDisplay.Size = UDim2.new(1, -20, 0, 35)
-	coinsDisplay.Position = UDim2.new(0, 10, 0, 65)
-	coinsDisplay.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
-	coinsDisplay.Text = "🪙 Coins: 0"
-	coinsDisplay.Font = Enum.Font.GothamBold
-	coinsDisplay.TextSize = 20
-	coinsDisplay.TextColor3 = Color3.fromRGB(255, 215, 0)
-	coinsDisplay.Parent = mainFrame
-
-	local coinsCorner = Instance.new("UICorner")
-	coinsCorner.CornerRadius = UDim.new(0, 8)
-	coinsCorner.Parent = coinsDisplay
-
-	-- Scroll frame for upgrades
-	local scrollFrame = Instance.new("ScrollingFrame")
-	scrollFrame.Name = "UpgradeScroll"
-	scrollFrame.Size = UDim2.new(1, -20, 1, -115)
-	scrollFrame.Position = UDim2.new(0, 10, 0, 108)
-	scrollFrame.BackgroundTransparency = 1
-	scrollFrame.BorderSizePixel = 0
-	scrollFrame.ScrollBarThickness = 4
-	scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 200, 0)
-	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-	scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	scrollFrame.Parent = mainFrame
-
-	local listLayout = Instance.new("UIListLayout")
-	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	listLayout.Padding = UDim.new(0, 6)
-	listLayout.Parent = scrollFrame
-
-	local scrollPadding = Instance.new("UIPadding")
-	scrollPadding.PaddingBottom = UDim.new(0, 6)
-	scrollPadding.Parent = scrollFrame
-
-	-- Status message
-	local statusMsg = Instance.new("TextLabel")
-	statusMsg.Name = "StatusMessage"
-	statusMsg.Size = UDim2.new(1, -20, 0, 30)
-	statusMsg.Position = UDim2.new(0, 10, 1, -35)
-	statusMsg.BackgroundTransparency = 1
-	statusMsg.Text = ""
-	statusMsg.Font = Enum.Font.Gotham
-	statusMsg.TextSize = 16
-	statusMsg.TextColor3 = Color3.fromRGB(100, 255, 100)
-	statusMsg.Parent = mainFrame
-
-	-- Button references for updating
-	local upgradeButtons = {}
-
-	local function showStatus(msg, success)
-		statusMsg.Text = msg
-		statusMsg.TextColor3 = success and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100)
-		task.delay(3, function()
-			if statusMsg.Text == msg then
-				statusMsg.Text = ""
-			end
-		end)
-	end
-
-	local function updateButtons()
-		for _, info in ipairs(upgradeButtons) do
-			local btn = info.button
-			local costLabel = info.costLabel
-
-			if purchasedUpgrades[info.id] then
-				btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-				costLabel.Text = "✓ OWNED"
-				costLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
-				btn.Active = false
-			elseif currentCoins >= info.cost then
-				btn.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
-			else
-				btn.BackgroundColor3 = Color3.fromRGB(80, 40, 40)
-			end
-		end
-
-		coinsDisplay.Text = "🪙 Coins: " .. tostring(math.floor(currentCoins))
-	end
-
-	-- Create upgrade buttons
-	for i, upgrade in ipairs(UPGRADES) do
 		local btn = Instance.new("TextButton")
-		btn.Name = upgrade.id
-		btn.Size = UDim2.new(1, -8, 0, 65)
-		btn.BackgroundColor3 = Color3.fromRGB(40, 40, 70)
-		btn.BorderSizePixel = 0
-		btn.Text = ""
-		btn.LayoutOrder = i
-		btn.Parent = scrollFrame
+		btn.Size=UDim2.new(0.37,0,0.68,0); btn.Position=UDim2.new(0.61,0,0.16,0)
+		btn.BackgroundColor3=owned and Color3.fromRGB(70,70,70) or Color3.fromRGB(255,175,0)
+		btn.Text=owned and "✓ OWNED" or "🪙 "..upg.cost
+		btn.TextColor3=owned and Color3.fromRGB(160,160,160) or Color3.fromRGB(0,0,0)
+		btn.TextScaled=true; btn.Font=Enum.Font.GothamBold; btn.ZIndex=7; btn.Parent=row
+		Instance.new("UICorner", btn).CornerRadius = UDim.new(0,8)
 
-		local btnCorner = Instance.new("UICorner")
-		btnCorner.CornerRadius = UDim.new(0, 10)
-		btnCorner.Parent = btn
-
-		local btnStroke = Instance.new("UIStroke")
-		btnStroke.Color = Color3.fromRGB(80, 80, 120)
-		btnStroke.Thickness = 1
-		btnStroke.Parent = btn
-
-		-- Icon
-		local iconLabel = Instance.new("TextLabel")
-		iconLabel.Size = UDim2.new(0, 50, 1, 0)
-		iconLabel.Position = UDim2.new(0, 5, 0, 0)
-		iconLabel.BackgroundTransparency = 1
-		iconLabel.Text = upgrade.icon
-		iconLabel.Font = Enum.Font.GothamBold
-		iconLabel.TextSize = 22
-		iconLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-		iconLabel.Parent = btn
-
-		-- Name label
-		local nameLabel = Instance.new("TextLabel")
-		nameLabel.Size = UDim2.new(1, -130, 0, 32)
-		nameLabel.Position = UDim2.new(0, 60, 0, 6)
-		nameLabel.BackgroundTransparency = 1
-		nameLabel.Text = upgrade.name
-		nameLabel.Font = Enum.Font.GothamBold
-		nameLabel.TextSize = 16
-		nameLabel.TextColor3 = Color3.new(1, 1, 1)
-		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-		nameLabel.Parent = btn
-
-		-- Desc label
-		local descLabel = Instance.new("TextLabel")
-		descLabel.Size = UDim2.new(1, -130, 0, 22)
-		descLabel.Position = UDim2.new(0, 60, 0, 36)
-		descLabel.BackgroundTransparency = 1
-		descLabel.Text = upgrade.desc
-		descLabel.Font = Enum.Font.Gotham
-		descLabel.TextSize = 13
-		descLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-		descLabel.TextXAlignment = Enum.TextXAlignment.Left
-		descLabel.Parent = btn
-
-		-- Cost label
-		local costLabel = Instance.new("TextLabel")
-		costLabel.Name = "CostLabel"
-		costLabel.Size = UDim2.new(0, 100, 1, 0)
-		costLabel.Position = UDim2.new(1, -110, 0, 0)
-		costLabel.BackgroundTransparency = 1
-		costLabel.Text = "🪙 " .. tostring(upgrade.cost)
-		costLabel.Font = Enum.Font.GothamBold
-		costLabel.TextSize = 16
-		costLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-		costLabel.Parent = btn
-
-		table.insert(upgradeButtons, { button = btn, costLabel = costLabel, id = upgrade.id, cost = upgrade.cost })
-
-		btn.MouseButton1Click:Connect(function()
-			if purchasedUpgrades[upgrade.id] then
-				showStatus("Already purchased!", false)
-				return
-			end
-			if currentCoins < upgrade.cost then
-				showStatus("Not enough coins! Need 🪙" .. upgrade.cost, false)
-				return
-			end
-
-			-- Optimistic UI
-			btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-
-			local result = PurchaseUpgrade:InvokeServer(upgrade.id)
-			if result and result.success then
-				purchasedUpgrades[upgrade.id] = true
-				showStatus("✓ " .. result.message, true)
-				updateButtons()
-			else
-				showStatus("✗ " .. (result and result.message or "Purchase failed!"), false)
-				updateButtons()
-			end
-		end)
-
-		-- Hover effects
-		btn.MouseEnter:Connect(function()
-			if not purchasedUpgrades[upgrade.id] then
-				TweenService:Create(btn, TweenInfo.new(0.1), { BackgroundColor3 = Color3.fromRGB(60, 60, 100) }):Play()
-			end
-		end)
-		btn.MouseLeave:Connect(function()
-			updateButtons()
-		end)
-	end
-
-	-- Update coins display when coins change
-	UpdateCoins.OnClientEvent:Connect(function(coins, totalCoins, multiplier, magnet)
-		currentCoins = coins
-		updateButtons()
-	end)
-
-	closeBtn.MouseButton1Click:Connect(function()
-		screenGui.Enabled = false
-		shopOpen = false
-	end)
-
-	return screenGui, updateButtons
-end
-
-local shopGui, updateShopButtons = createShopUI()
-
--- Toggle shop with E key when near shop part
-local function isNearShop()
-	local character = player.Character
-	if not character then return false end
-	local root = character:FindFirstChild("HumanoidRootPart")
-	if not root then return false end
-
-	local shopPart = workspace:FindFirstChild("ShopPart")
-	if not shopPart then return false end
-
-	return (root.Position - shopPart.Position).Magnitude <= 20
-end
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.E then
-		if shopOpen then
-			shopGui.Enabled = false
-			shopOpen = false
-		elseif isNearShop() then
-			shopGui.Enabled = true
-			shopOpen = true
+		if not owned then
+			btn.Activated:Connect(function()
+				local result = Remotes:Get("PurchaseUpgrade"):InvokeServer(upg.id)
+				msgLabel.Text = result.message
+				if result.success then
+					msgLabel.TextColor3 = Color3.fromRGB(100,255,100)
+					if result.upgrades then ownedUpgrades = result.upgrades end
+					refreshShop()
+				else
+					msgLabel.TextColor3 = Color3.fromRGB(255,100,100)
+				end
+			end)
 		end
 	end
-	if input.KeyCode == Enum.KeyCode.Escape and shopOpen then
-		shopGui.Enabled = false
-		shopOpen = false
+end
+
+local wasNear = false
+RunService.Heartbeat:Connect(function()
+	local char = player.Character
+	if not char then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return end
+	local shopPart = workspace:FindFirstChild("ShopPart")
+	if not shopPart then return end
+	local dist = (shopPart.Position - root.Position).Magnitude
+	if dist < 18 and not wasNear then
+		wasNear = true; shopFrame.Visible = true; refreshShop()
+	elseif dist > 22 and wasNear then
+		wasNear = false; shopFrame.Visible = false
 	end
 end)
 
--- Show proximity prompt on shop
-local function setupShopPrompt()
-	local shopPart = workspace:WaitForChild("ShopPart", 10)
-	if not shopPart then return end
-
-	local proximityPrompt = Instance.new("ProximityPrompt")
-	proximityPrompt.ActionText = "Open Shop"
-	proximityPrompt.ObjectText = "Coin Shop"
-	proximityPrompt.KeyboardKeyCode = Enum.KeyCode.E
-	proximityPrompt.MaxActivationDistance = 20
-	proximityPrompt.Parent = shopPart
-
-	proximityPrompt.Triggered:Connect(function(triggeringPlayer)
-		if triggeringPlayer == player then
-			shopGui.Enabled = not shopGui.Enabled
-			shopOpen = shopGui.Enabled
-		end
-	end)
-end
-
-task.spawn(setupShopPrompt)
-
-print("ShopController loaded!")
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.Tab then
+		shopFrame.Visible = not shopFrame.Visible
+		if shopFrame.Visible then refreshShop() end
+	end
+end)

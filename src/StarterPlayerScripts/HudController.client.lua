@@ -1,251 +1,180 @@
--- HudController.client.lua
--- Manages the HUD display: coin counter, multiplier, magnet status
-
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-local RemoteEventsModule = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RemoteEvents")
-local RemoteEvents = require(RemoteEventsModule)
-
-local UpdateCoins = RemoteEvents.UpdateCoins
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+local Remotes = require(game:GetService("ReplicatedStorage"):WaitForChild("Remotes"))
 
-local currentCoins = 0
-local displayedCoins = 0
+local gui = Instance.new("ScreenGui")
+gui.Name = "HUD"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.Parent = player.PlayerGui
 
--- Create HUD
-local hudGui = Instance.new("ScreenGui")
-hudGui.Name = "HudGui"
-hudGui.ResetOnSpawn = false
-hudGui.DisplayOrder = 10
-hudGui.Parent = playerGui
-
--- Coin counter background
 local coinFrame = Instance.new("Frame")
-coinFrame.Name = "CoinFrame"
-coinFrame.Size = UDim2.new(0, 280, 0, 70)
-coinFrame.Position = UDim2.new(0.5, -140, 0, 15)
-coinFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-coinFrame.BackgroundTransparency = 0.2
+coinFrame.Size = UDim2.new(0,280,0,65)
+coinFrame.Position = UDim2.new(0.5,-140,0,10)
+coinFrame.BackgroundColor3 = Color3.fromRGB(0,0,0)
+coinFrame.BackgroundTransparency = 0.35
 coinFrame.BorderSizePixel = 0
-coinFrame.Parent = hudGui
+coinFrame.Parent = gui
+Instance.new("UICorner", coinFrame).CornerRadius = UDim.new(0,14)
 
-local coinFrameCorner = Instance.new("UICorner")
-coinFrameCorner.CornerRadius = UDim.new(0, 16)
-coinFrameCorner.Parent = coinFrame
-
-local coinFrameStroke = Instance.new("UIStroke")
-coinFrameStroke.Color = Color3.fromRGB(255, 200, 0)
-coinFrameStroke.Thickness = 2
-coinFrameStroke.Parent = coinFrame
-
--- Coin icon
-local coinIcon = Instance.new("TextLabel")
-coinIcon.Size = UDim2.new(0, 50, 1, 0)
-coinIcon.Position = UDim2.new(0, 5, 0, 0)
-coinIcon.BackgroundTransparency = 1
-coinIcon.Text = "🪙"
-coinIcon.Font = Enum.Font.GothamBold
-coinIcon.TextSize = 36
-coinIcon.TextColor3 = Color3.fromRGB(255, 215, 0)
-coinIcon.Parent = coinFrame
-
--- Main coin counter
 local coinLabel = Instance.new("TextLabel")
-coinLabel.Name = "CoinLabel"
-coinLabel.Size = UDim2.new(1, -60, 1, 0)
-coinLabel.Position = UDim2.new(0, 55, 0, 0)
+coinLabel.Size = UDim2.new(1,0,1,0)
 coinLabel.BackgroundTransparency = 1
-coinLabel.Text = "0"
+coinLabel.Text = "🪙 0"
+coinLabel.TextColor3 = Color3.fromRGB(255,215,0)
+coinLabel.TextScaled = true
 coinLabel.Font = Enum.Font.GothamBold
-coinLabel.TextSize = 32
-coinLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
-coinLabel.TextXAlignment = Enum.TextXAlignment.Left
-coinLabel.TextStrokeTransparency = 0.5
-coinLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
 coinLabel.Parent = coinFrame
 
--- Multiplier badge
-local multFrame = Instance.new("Frame")
-multFrame.Name = "MultiplierFrame"
-multFrame.Size = UDim2.new(0, 120, 0, 35)
-multFrame.Position = UDim2.new(0.5, -60, 0, 88)
-multFrame.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
-multFrame.BackgroundTransparency = 0.2
-multFrame.BorderSizePixel = 0
-multFrame.Visible = false
-multFrame.Parent = hudGui
+local comboFrame = Instance.new("Frame")
+comboFrame.Size = UDim2.new(0,220,0,42)
+comboFrame.Position = UDim2.new(0.5,-110,0,82)
+comboFrame.BackgroundColor3 = Color3.fromRGB(255,80,0)
+comboFrame.BackgroundTransparency = 1
+comboFrame.BorderSizePixel = 0
+comboFrame.Parent = gui
+Instance.new("UICorner", comboFrame).CornerRadius = UDim.new(0,10)
 
-local multCorner = Instance.new("UICorner")
-multCorner.CornerRadius = UDim.new(0, 10)
-multCorner.Parent = multFrame
+local comboLabel = Instance.new("TextLabel")
+comboLabel.Size = UDim2.new(1,0,1,0)
+comboLabel.BackgroundTransparency = 1
+comboLabel.TextColor3 = Color3.fromRGB(255,150,0)
+comboLabel.TextScaled = true
+comboLabel.Font = Enum.Font.GothamBold
+comboLabel.Parent = comboFrame
 
-local multLabel = Instance.new("TextLabel")
-multLabel.Size = UDim2.new(1, 0, 1, 0)
-multLabel.BackgroundTransparency = 1
-multLabel.Text = "x2 ACTIVE"
-multLabel.Font = Enum.Font.GothamBold
-multLabel.TextSize = 16
-multLabel.TextColor3 = Color3.new(1, 1, 1)
-multLabel.Parent = multFrame
-
--- Magnet badge
-local magnetFrame = Instance.new("Frame")
-magnetFrame.Name = "MagnetFrame"
-magnetFrame.Size = UDim2.new(0, 140, 0, 35)
-magnetFrame.Position = UDim2.new(0.5, -70, 0, 127)
-magnetFrame.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-magnetFrame.BackgroundTransparency = 0.2
-magnetFrame.BorderSizePixel = 0
-magnetFrame.Visible = false
-magnetFrame.Parent = hudGui
-
-local magnetCorner = Instance.new("UICorner")
-magnetCorner.CornerRadius = UDim.new(0, 10)
-magnetCorner.Parent = magnetFrame
-
-local magnetLabel = Instance.new("TextLabel")
-magnetLabel.Size = UDim2.new(1, 0, 1, 0)
-magnetLabel.BackgroundTransparency = 1
-magnetLabel.Text = "🧲 MAGNET ACTIVE"
-magnetLabel.Font = Enum.Font.GothamBold
-magnetLabel.TextSize = 14
-magnetLabel.TextColor3 = Color3.new(1, 1, 1)
-magnetLabel.Parent = magnetFrame
-
--- Hints frame (bottom left)
-local hintsFrame = Instance.new("Frame")
-hintsFrame.Size = UDim2.new(0, 220, 0, 60)
-hintsFrame.Position = UDim2.new(0, 15, 1, -80)
-hintsFrame.BackgroundColor3 = Color3.new(0, 0, 0)
-hintsFrame.BackgroundTransparency = 0.5
-hintsFrame.BorderSizePixel = 0
-hintsFrame.Parent = hudGui
-
-local hintsCorner = Instance.new("UICorner")
-hintsCorner.CornerRadius = UDim.new(0, 10)
-hintsCorner.Parent = hintsFrame
-
-local hintsLabel = Instance.new("TextLabel")
-hintsLabel.Size = UDim2.new(1, -10, 1, 0)
-hintsLabel.Position = UDim2.new(0, 5, 0, 0)
-hintsLabel.BackgroundTransparency = 1
-hintsLabel.Text = "Walk near coins to collect!\nPress E near Shop to upgrade"
-hintsLabel.Font = Enum.Font.Gotham
-hintsLabel.TextSize = 13
-hintsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-hintsLabel.TextXAlignment = Enum.TextXAlignment.Left
-hintsLabel.Parent = hintsFrame
-
--- Coin type legend (top right)
-local legendFrame = Instance.new("Frame")
-legendFrame.Size = UDim2.new(0, 160, 0, 110)
-legendFrame.Position = UDim2.new(1, -175, 0, 15)
-legendFrame.BackgroundColor3 = Color3.new(0, 0, 0)
-legendFrame.BackgroundTransparency = 0.4
-legendFrame.BorderSizePixel = 0
-legendFrame.Parent = hudGui
-
-local legendCorner = Instance.new("UICorner")
-legendCorner.CornerRadius = UDim.new(0, 10)
-legendCorner.Parent = legendFrame
-
-local legendTitle = Instance.new("TextLabel")
-legendTitle.Size = UDim2.new(1, 0, 0, 22)
-legendTitle.BackgroundTransparency = 1
-legendTitle.Text = "COIN TYPES"
-legendTitle.Font = Enum.Font.GothamBold
-legendTitle.TextSize = 13
-legendTitle.TextColor3 = Color3.fromRGB(255, 215, 0)
-legendTitle.Parent = legendFrame
-
-local coinTypes = {
-	{ name = "Common",    value = "1",   color = Color3.fromRGB(255, 215, 0) },
-	{ name = "Rare",      value = "5",   color = Color3.fromRGB(0, 120, 255) },
-	{ name = "Epic",      value = "20",  color = Color3.fromRGB(160, 0, 255) },
-	{ name = "Legendary", value = "100", color = Color3.fromRGB(255, 165, 0) },
-}
-
-for i, ct in ipairs(coinTypes) do
-	local row = Instance.new("TextLabel")
-	row.Size = UDim2.new(1, -10, 0, 20)
-	row.Position = UDim2.new(0, 5, 0, 20 + (i-1) * 22)
-	row.BackgroundTransparency = 1
-	row.Text = "● " .. ct.name .. " = +" .. ct.value
-	row.Font = Enum.Font.Gotham
-	row.TextSize = 13
-	row.TextColor3 = ct.color
-	row.TextXAlignment = Enum.TextXAlignment.Left
-	row.Parent = legendFrame
+local function makeBadge(color, yOff, text)
+	local f = Instance.new("Frame")
+	f.Size = UDim2.new(0,160,0,44)
+	f.Position = UDim2.new(1,-168,0,yOff)
+	f.BackgroundColor3 = color
+	f.BackgroundTransparency = 0.25
+	f.BorderSizePixel = 0
+	f.Visible = false
+	f.Parent = gui
+	Instance.new("UICorner", f).CornerRadius = UDim.new(0,10)
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1,0,1,0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = text
+	lbl.TextColor3 = Color3.new(1,1,1)
+	lbl.TextScaled = true
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Parent = f
+	return f, lbl
 end
 
--- Animate coin counter
-local function formatNumber(n)
-	n = math.floor(n)
-	if n >= 1000000 then
-		return string.format("%.1fM", n / 1000000)
-	elseif n >= 1000 then
-		return string.format("%.1fK", n / 1000)
-	else
-		return tostring(n)
-	end
-end
+local multFrame, multLabel = makeBadge(Color3.fromRGB(0,180,0), 10, "✨ x1 COINS")
+local magnetFrame = makeBadge(Color3.fromRGB(100,0,200), 62, "🧲 MAGNET")
 
-local function animateCoinCount(targetCoins)
-	-- Pop animation on frame
-	TweenService:Create(coinFrame, TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 300, 0, 76)
-	}):Play()
-	task.delay(0.1, function()
-		TweenService:Create(coinFrame, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Size = UDim2.new(0, 280, 0, 70)
-		}):Play()
-	end)
+local bannerFrame = Instance.new("Frame")
+bannerFrame.Size = UDim2.new(0,460,0,55)
+bannerFrame.Position = UDim2.new(0.5,-230,0.15,0)
+bannerFrame.BackgroundColor3 = Color3.fromRGB(220,50,50)
+bannerFrame.BackgroundTransparency = 0.15
+bannerFrame.BorderSizePixel = 0
+bannerFrame.Visible = false
+bannerFrame.Parent = gui
+Instance.new("UICorner", bannerFrame).CornerRadius = UDim.new(0,12)
+local bannerLabel = Instance.new("TextLabel")
+bannerLabel.Size = UDim2.new(1,0,1,0)
+bannerLabel.BackgroundTransparency = 1
+bannerLabel.TextColor3 = Color3.new(1,1,1)
+bannerLabel.TextScaled = true
+bannerLabel.Font = Enum.Font.GothamBold
+bannerLabel.Parent = bannerFrame
 
-	-- Smooth number tween
-	local startCoins = displayedCoins
-	local diff = targetCoins - startCoins
-	local duration = math.min(0.5, math.abs(diff) * 0.01 + 0.1)
-	local startTime = tick()
-
-	task.spawn(function()
-		while true do
-			local elapsed = tick() - startTime
-			local t = math.min(elapsed / duration, 1)
-			-- Ease out
-			local eased = 1 - (1 - t) ^ 2
-			displayedCoins = startCoins + diff * eased
-			coinLabel.Text = formatNumber(displayedCoins)
-
-			if t >= 1 then
-				displayedCoins = targetCoins
-				coinLabel.Text = formatNumber(targetCoins)
-				break
-			end
-			task.wait()
-		end
-	end)
-end
-
-UpdateCoins.OnClientEvent:Connect(function(coins, totalCoins, multiplier, magnet)
-	if coins ~= currentCoins then
-		animateCoinCount(coins)
-		currentCoins = coins
-	end
-
-	-- Update multiplier badge
-	if multiplier and multiplier > 1 then
-		multFrame.Visible = true
-		multLabel.Text = "x" .. tostring(multiplier) .. " ACTIVE"
-	else
-		multFrame.Visible = false
-	end
-
-	-- Update magnet badge
-	magnetFrame.Visible = magnet == true
+local hintLabel = Instance.new("TextLabel")
+hintLabel.Size = UDim2.new(0,500,0,34)
+hintLabel.Position = UDim2.new(0.5,-250,1,-46)
+hintLabel.BackgroundTransparency = 1
+hintLabel.Text = "🏪 Walk to the SHOP to upgrade | ⚡ Yellow pad = BOOST | 🐌 Purple pad = SLOW"
+hintLabel.TextColor3 = Color3.fromRGB(200,200,200)
+hintLabel.TextScaled = true
+hintLabel.Font = Enum.Font.Gotham
+hintLabel.Parent = gui
+task.delay(10, function()
+	TweenService:Create(hintLabel, TweenInfo.new(2), {TextTransparency=1}):Play()
 end)
 
-print("HudController loaded!")
+Remotes:Get("CoinsUpdated").OnClientEvent:Connect(function(data)
+	local c = data.coins
+	local fmt
+	if c>=1e6 then fmt=string.format("%.1fM",c/1e6)
+	elseif c>=1000 then fmt=string.format("%.1fK",c/1000)
+	else fmt=tostring(math.floor(c)) end
+	coinLabel.Text = "🪙 "..fmt
+
+	TweenService:Create(coinFrame, TweenInfo.new(0.07), {Size=UDim2.new(0,310,0,72)}):Play()
+	task.delay(0.07, function()
+		TweenService:Create(coinFrame, TweenInfo.new(0.12), {Size=UDim2.new(0,280,0,65)}):Play()
+	end)
+
+	if data.combo and data.combo >= 10 then
+		comboFrame.BackgroundTransparency = 0.25
+		local s = data.comboMultiplier > 1 and (" x"..data.comboMultiplier.."!") or ""
+		comboLabel.Text = "🔥 COMBO "..data.combo..s
+	else
+		comboFrame.BackgroundTransparency = 1
+		comboLabel.Text = ""
+	end
+
+	if data.multiplier and data.multiplier > 1 then
+		multFrame.Visible = true
+		multLabel.Text = "✨ x"..data.multiplier.." COINS"
+	end
+	if data.magnetRadius and data.magnetRadius > 0 then
+		magnetFrame.Visible = true
+	end
+end)
+
+Remotes:Get("ShowEffect").OnClientEvent:Connect(function(data)
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+	local screenPos, onScreen = camera:WorldToScreenPoint(data.position + Vector3.new(0,3,0))
+	if not onScreen then return end
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(0,110,0,44)
+	lbl.Position = UDim2.new(0,screenPos.X-55,0,screenPos.Y-22)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextScaled = true
+	lbl.ZIndex = 10
+	if data.type=="lucky" then
+		lbl.Text="⭐ +"..data.value.." LUCKY!"
+		lbl.TextColor3=Color3.fromRGB(255,255,0)
+		lbl.TextStrokeTransparency=0
+		lbl.TextStrokeColor3=Color3.fromRGB(180,80,0)
+	elseif data.combo and data.combo>=20 then
+		lbl.Text="🔥 +"..data.value
+		lbl.TextColor3=Color3.fromRGB(255,100,0)
+		lbl.TextStrokeTransparency=0
+	else
+		lbl.Text="+"..data.value
+		lbl.TextColor3=Color3.new(1,1,1)
+		lbl.TextStrokeTransparency=0.4
+	end
+	lbl.Parent = gui
+	TweenService:Create(lbl, TweenInfo.new(0.75,Enum.EasingStyle.Quad,Enum.EasingDirection.Out), {
+		Position=UDim2.new(0,screenPos.X-55,0,screenPos.Y-100),
+		TextTransparency=1, TextStrokeTransparency=1,
+	}):Play()
+	game:GetService("Debris"):AddItem(lbl, 0.8)
+end)
+
+Remotes:Get("EventAnnounce").OnClientEvent:Connect(function(msg)
+	bannerLabel.Text = msg
+	bannerFrame.Visible = true
+	bannerLabel.TextTransparency = 0
+	bannerFrame.BackgroundTransparency = 0.1
+	task.delay(0.1, function()
+		TweenService:Create(bannerFrame, TweenInfo.new(2.5), {BackgroundTransparency=1}):Play()
+		TweenService:Create(bannerLabel, TweenInfo.new(2.5), {TextTransparency=1}):Play()
+	end)
+	task.delay(3, function()
+		bannerFrame.Visible = false
+		bannerLabel.TextTransparency = 0
+	end)
+end)

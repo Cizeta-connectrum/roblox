@@ -4,52 +4,22 @@
     "$className": "DataModel",
     "ServerScriptService": {
       "$className": "ServerScriptService",
-      "CoinManager": {
-        "$path": "src/ServerScriptService/CoinManager.server.lua"
-      },
-      "ShopService": {
-        "$path": "src/ServerScriptService/ShopService.server.lua"
-      },
-      "LeaderboardService": {
-        "$path": "src/ServerScriptService/LeaderboardService.server.lua"
-      },
-      "MapSetup": {
-        "$path": "src/ServerScriptService/MapSetup.server.lua"
-      }
+      "$path": "src/ServerScriptService"
     },
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
-      "Modules": {
-        "$className": "Folder",
-        "RemoteEvents": {
-          "$path": "src/ReplicatedStorage/Modules/RemoteEvents.lua"
-        }
-      }
+      "$path": "src/ReplicatedStorage"
     },
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "CoinController": {
-          "$path": "src/StarterPlayerScripts/CoinController.client.lua"
-        },
-        "ShopController": {
-          "$path": "src/StarterPlayerScripts/ShopController.client.lua"
-        },
-        "HudController": {
-          "$path": "src/StarterPlayerScripts/HudController.client.lua"
-        }
+        "$path": "src/StarterPlayerScripts"
       }
     },
     "StarterGui": {
       "$className": "StarterGui",
-      "ShopGui": {
-        "$className": "ScreenGui",
-        "$properties": {
-          "ResetOnSpawn": false,
-          "Enabled": false
-        }
-      }
+      "$path": "src/StarterGui"
     }
   }
 }

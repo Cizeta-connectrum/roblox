@@ -1,317 +1,253 @@
--- CoinManager.server.lua
--- Manages coin spawning, collection, and magnet behavior
-
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local RS = game:GetService("ReplicatedStorage")
 
--- Wait for RemoteEvents module
-local RemoteEventsModule = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("RemoteEvents")
-local RemoteEvents = require(RemoteEventsModule)
+local Remotes = require(RS:WaitForChild("Remotes"))
 
-local UpdateCoins = RemoteEvents.UpdateCoins
-local ShowCollectEffect = RemoteEvents.ShowCollectEffect
-local CoinCollected = RemoteEvents.CoinCollected
-
--- Player data store
 local playerData = {}
 
--- Coin types configuration
-local COIN_TYPES = {
-	{
-		name = "Common",
-		color = Color3.fromRGB(255, 215, 0),     -- Gold/Yellow
-		size = 2,
-		value = 1,
-		weight = 60,
-		material = Enum.Material.SmoothPlastic,
-		emitLight = false,
-	},
-	{
-		name = "Rare",
-		color = Color3.fromRGB(0, 120, 255),      -- Blue
-		size = 2.5,
-		value = 5,
-		weight = 25,
-		material = Enum.Material.Neon,
-		emitLight = false,
-	},
-	{
-		name = "Epic",
-		color = Color3.fromRGB(160, 0, 255),      -- Purple
-		size = 3,
-		value = 20,
-		weight = 12,
-		material = Enum.Material.Neon,
-		emitLight = true,
-	},
-	{
-		name = "Legendary",
-		color = Color3.fromRGB(255, 165, 0),      -- Orange/Gold
-		size = 4,
-		value = 100,
-		weight = 3,
-		material = Enum.Material.Neon,
-		emitLight = true,
-	},
+local UPGRADES = {
+	speed1   = {cost=50,    label="⚡ Speed I",    apply=function(d) d.speed=22 end},
+	speed2   = {cost=200,   label="⚡ Speed II",   apply=function(d) d.speed=28 end},
+	speed3   = {cost=600,   label="⚡ Speed III",  apply=function(d) d.speed=36 end},
+	speed4   = {cost=2000,  label="⚡ Speed MAX",  apply=function(d) d.speed=50 end},
+	radius1  = {cost=100,   label="🔵 Radius I",   apply=function(d) d.radius=14 end},
+	radius2  = {cost=400,   label="🔵 Radius II",  apply=function(d) d.radius=22 end},
+	radius3  = {cost=1500,  label="🔵 Radius MAX", apply=function(d) d.radius=35 end},
+	multi2   = {cost=300,   label="✨ 2x Coins",   apply=function(d) d.multiplier=2 end},
+	multi3   = {cost=1000,  label="✨ 3x Coins",   apply=function(d) d.multiplier=3 end},
+	multi5   = {cost=3000,  label="✨ 5x Coins",   apply=function(d) d.multiplier=5 end},
+	multi10  = {cost=10000, label="✨ 10x Coins",  apply=function(d) d.multiplier=10 end},
+	magnet1  = {cost=500,   label="🧲 Magnet I",   apply=function(d) d.magnetRadius=25 end},
+	magnet2  = {cost=2000,  label="🧲 Magnet II",  apply=function(d) d.magnetRadius=50 end},
+	magnet3  = {cost=8000,  label="🧲 Magnet MAX", apply=function(d) d.magnetRadius=100 end},
 }
 
-local MAX_COINS = 200
-local SPAWN_INTERVAL = 2
-local CHECK_INTERVAL = 0.5
-local MAP_SIZE = 240  -- half of 500x500 map
+local COIN_TYPES = {
+	{name="Common",    color=Color3.fromRGB(255,215,0),   value=1,   size=1.8, weight=60},
+	{name="Rare",      color=Color3.fromRGB(100,149,237), value=5,   size=2.2, weight=25},
+	{name="Epic",      color=Color3.fromRGB(148,0,211),   value=20,  size=2.7, weight=12},
+	{name="Legendary", color=Color3.fromRGB(255,100,0),   value=100, size=3.5, weight=3},
+}
 
--- Folder to hold coins
-local coinsFolder = Instance.new("Folder")
-coinsFolder.Name = "Coins"
-coinsFolder.Parent = workspace
+local coins = {}
+local MAX_COINS = 150
+local coinFolder = Instance.new("Folder")
+coinFolder.Name = "Coins"
+coinFolder.Parent = workspace
 
--- Active coins table: coinPart -> {value, coinType, id}
-local activeCoins = {}
-
-local function weightedRandom(types)
-	local totalWeight = 0
-	for _, t in ipairs(types) do
-		totalWeight = totalWeight + t.weight
+local function fireUpdate(player)
+	local data = playerData[player.UserId]
+	if not data then return end
+	local ls = player:FindFirstChild("leaderstats")
+	if ls then
+		ls.Coins.Value = data.coins
+		ls.Total.Value = data.total
 	end
-	local r = math.random(1, totalWeight)
-	local cumulative = 0
-	for _, t in ipairs(types) do
-		cumulative = cumulative + t.weight
-		if r <= cumulative then
-			return t
-		end
-	end
-	return types[1]
+	Remotes:Get("CoinsUpdated"):FireClient(player, {
+		coins=data.coins, combo=data.combo,
+		comboMultiplier=data.comboMultiplier,
+		multiplier=data.multiplier, magnetRadius=data.magnetRadius,
+		upgrades=data.upgrades,
+	})
 end
 
-local function createCoinLabel(coin, coinType)
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "CoinLabel"
-	billboard.Size = UDim2.new(0, 60, 0, 30)
-	billboard.StudsOffset = Vector3.new(0, coinType.size + 0.5, 0)
-	billboard.AlwaysOnTop = false
-	billboard.Parent = coin
+Players.PlayerAdded:Connect(function(player)
+	local ls = Instance.new("Folder"); ls.Name="leaderstats"; ls.Parent=player
+	local cv = Instance.new("IntValue"); cv.Name="Coins"; cv.Parent=ls
+	local tv = Instance.new("IntValue"); tv.Name="Total"; tv.Parent=ls
 
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, 0, 1, 0)
-	label.BackgroundTransparency = 1
-	label.Text = "+" .. tostring(coinType.value)
-	label.Font = Enum.Font.GothamBold
-	label.TextScaled = true
-	label.TextColor3 = Color3.new(1, 1, 1)
-	label.TextStrokeTransparency = 0
-	label.TextStrokeColor3 = Color3.new(0, 0, 0)
-	label.Parent = billboard
-end
+	playerData[player.UserId] = {
+		coins=0, total=0, speed=16, radius=10,
+		multiplier=1, magnetRadius=0,
+		combo=0, lastCollect=0, comboMultiplier=1,
+		upgrades={}, boosted=false, slowed=false,
+	}
+	player.CharacterAdded:Connect(function(char)
+		local data = playerData[player.UserId]
+		if not data then return end
+		local hum = char:WaitForChild("Humanoid")
+		task.wait(0.1)
+		hum.WalkSpeed = data.speed
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(p) playerData[p.UserId]=nil end)
 
 local function spawnCoin()
-	local coinType = weightedRandom(COIN_TYPES)
-
-	local x = math.random(-MAP_SIZE, MAP_SIZE)
-	local z = math.random(-MAP_SIZE, MAP_SIZE)
-	local y = 1 + coinType.size / 2
-
-	local coin = Instance.new("Part")
-	coin.Name = "Coin_" .. coinType.name
-	coin.Shape = Enum.PartType.Cylinder
-	coin.Size = Vector3.new(0.5, coinType.size, coinType.size)
-	coin.CFrame = CFrame.new(x, y, z) * CFrame.Angles(0, 0, math.pi / 2)
-	coin.Color = coinType.color
-	coin.Material = coinType.material
-	coin.Anchored = true
-	coin.CanCollide = false
-	coin.CastShadow = false
-
-	if coinType.emitLight then
-		local light = Instance.new("PointLight")
-		light.Brightness = 2
-		light.Range = 12
-		light.Color = coinType.color
-		light.Parent = coin
+	if #coins >= MAX_COINS then return end
+	local roll = math.random(100)
+	local cum = 0; local ct = COIN_TYPES[1]
+	for _, t in ipairs(COIN_TYPES) do
+		cum = cum + t.weight
+		if roll <= cum then ct = t; break end
 	end
-
-	-- Add sparkle for legendary
-	if coinType.name == "Legendary" then
-		local sparkles = Instance.new("Sparkles")
-		sparkles.SparkleColor = coinType.color
-		sparkles.Parent = coin
+	local isLucky = math.random() < 0.04
+	local value = ct.value * (isLucky and 10 or 1)
+	local part = Instance.new("Part")
+	part.Shape = Enum.PartType.Ball
+	part.Size = Vector3.new(ct.size, ct.size, ct.size)
+	part.Color = isLucky and Color3.fromRGB(255,255,100) or ct.color
+	part.Material = (ct.name=="Common") and Enum.Material.SmoothPlastic or Enum.Material.Neon
+	part.Anchored = true; part.CanCollide = false; part.CastShadow = false
+	part.Position = Vector3.new(math.random(-180,180), 1.5, math.random(-180,180))
+	part.Parent = coinFolder
+	if isLucky or ct.name=="Legendary" then
+		local sp = Instance.new("Sparkles"); sp.SparkleColor=part.Color; sp.Parent=part
 	end
-
-	createCoinLabel(coin, coinType)
-	coin.Parent = coinsFolder
-
-	activeCoins[coin] = {
-		value = coinType.value,
-		coinType = coinType.name,
-		spawnTime = tick(),
-	}
-
-	return coin
+	local bb = Instance.new("BillboardGui"); bb.Size=UDim2.new(0,60,0,26); bb.StudsOffset=Vector3.new(0,2.5,0); bb.Parent=part
+	local lbl = Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,1,0); lbl.BackgroundTransparency=1
+	lbl.Text=(isLucky and "⭐" or "+")..value; lbl.TextColor3=Color3.new(1,1,1)
+	lbl.TextStrokeTransparency=0; lbl.TextScaled=true; lbl.Font=Enum.Font.GothamBold; lbl.Parent=bb
+	local entry = {part=part, value=value, lucky=isLucky, typeName=ct.name}
+	table.insert(coins, entry)
 end
 
-local function getPlayerData(player)
-	if not playerData[player] then
-		playerData[player] = {
-			coins = 0,
-			totalCoins = 0,
-			speed = 16,
-			radius = 10,
-			multiplier = 1,
-			magnet = false,
-			magnetRadius = 0,
-			purchasedUpgrades = {},
-		}
-	end
-	return playerData[player]
+local function removeCoin(entry)
+	for i,c in ipairs(coins) do if c==entry then table.remove(coins,i); break end end
+	if entry.part and entry.part.Parent then entry.part:Destroy() end
 end
 
-local function updatePlayerCoins(player)
-	local data = getPlayerData(player)
-	UpdateCoins:FireClient(player, data.coins, data.totalCoins, data.multiplier, data.magnet)
-
-	-- Update leaderstats
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if leaderstats then
-		local coinsValue = leaderstats:FindFirstChild("Coins")
-		local totalValue = leaderstats:FindFirstChild("Total")
-		if coinsValue then coinsValue.Value = data.coins end
-		if totalValue then totalValue.Value = data.totalCoins end
-	end
-
-	-- Fire bindable for leaderboard service
-	CoinCollected:Fire(player, data.coins, data.totalCoins)
-end
-
-local function collectCoin(player, coin)
-	if not activeCoins[coin] then return end
-
-	local coinData = activeCoins[coin]
-	local data = getPlayerData(player)
-
-	local earned = coinData.value * data.multiplier
-	data.coins = data.coins + earned
-	data.totalCoins = data.totalCoins + earned
-
-	local pos = coin.Position
-	local coinTypeName = coinData.coinType
-
-	-- Remove from tracking before destroying
-	activeCoins[coin] = nil
-	coin:Destroy()
-
-	-- Notify all clients of collect effect
-	ShowCollectEffect:FireAllClients(pos, earned, coinTypeName)
-
-	updatePlayerCoins(player)
-end
-
--- Player setup
-Players.PlayerAdded:Connect(function(player)
-	getPlayerData(player)
-
-	-- Create leaderstats
-	local leaderstats = Instance.new("Folder")
-	leaderstats.Name = "leaderstats"
-	leaderstats.Parent = player
-
-	local coinsValue = Instance.new("IntValue")
-	coinsValue.Name = "Coins"
-	coinsValue.Value = 0
-	coinsValue.Parent = leaderstats
-
-	local totalValue = Instance.new("IntValue")
-	totalValue.Name = "Total"
-	totalValue.Value = 0
-	totalValue.Parent = leaderstats
-end)
-
-Players.PlayerRemoving:Connect(function(player)
-	playerData[player] = nil
-end)
-
--- Expose player data for other scripts
-local DataModule = {}
-DataModule.getPlayerData = getPlayerData
-DataModule.updatePlayerCoins = updatePlayerCoins
-_G.CoinManagerData = DataModule
-
--- Coin spinning loop
-local coinSpinAngle = 0
-RunService.Heartbeat:Connect(function(dt)
-	coinSpinAngle = coinSpinAngle + dt * 90  -- degrees per second
-	local rad = math.rad(coinSpinAngle)
-
-	for coin, _ in pairs(activeCoins) do
-		if coin and coin.Parent then
-			local pos = coin.Position
-			coin.CFrame = CFrame.new(pos)
-				* CFrame.Angles(0, rad, math.pi / 2)
-				* CFrame.new(0, math.sin(tick() * 2 + pos.X) * 0.1, 0)
-		end
-	end
-end)
-
--- Coin spawner
-local lastSpawn = 0
-local lastCheck = 0
-
-RunService.Heartbeat:Connect(function()
+local function collectCoin(player, entry)
+	local data = playerData[player.UserId]
+	if not data then return end
 	local now = tick()
-
-	-- Spawn coins
-	if now - lastSpawn >= SPAWN_INTERVAL then
-		lastSpawn = now
-		local coinCount = 0
-		for _ in pairs(activeCoins) do coinCount = coinCount + 1 end
-
-		local toSpawn = math.min(5, MAX_COINS - coinCount)
-		for i = 1, toSpawn do
-			spawnCoin()
-		end
+	if now - data.lastCollect < 1.5 then
+		data.combo = math.min(data.combo+1, 50)
+	else
+		data.combo = 1
 	end
+	data.lastCollect = now
+	data.comboMultiplier = math.min(1 + math.floor(data.combo/10), 5)
+	local earned = entry.value * data.multiplier * data.comboMultiplier
+	data.coins = data.coins + earned
+	data.total = data.total + earned
+	local pos = entry.part and entry.part.Position or Vector3.new(0,2,0)
+	Remotes:Get("ShowEffect"):FireClient(player, {
+		type=entry.lucky and "lucky" or "collect",
+		position=pos, value=earned, combo=data.combo,
+	})
+	fireUpdate(player)
+end
 
-	-- Check collection and magnet
-	if now - lastCheck >= CHECK_INTERVAL then
-		lastCheck = now
+Remotes:Get("PurchaseUpgrade").OnServerInvoke = function(player, id)
+	local data = playerData[player.UserId]
+	if not data then return {success=false,message="No data"} end
+	local upg = UPGRADES[id]
+	if not upg then return {success=false,message="Unknown upgrade"} end
+	if data.upgrades[id] then return {success=false,message="Already owned!"} end
+	if data.coins < upg.cost then return {success=false,message="Need 🪙"..upg.cost} end
+	data.coins = data.coins - upg.cost
+	data.upgrades[id] = true
+	upg.apply(data)
+	local char = player.Character
+	if char then
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.WalkSpeed = data.speed end
+	end
+	fireUpdate(player)
+	return {success=true, message="Bought: "..upg.label, upgrades=data.upgrades}
+end
 
-		for _, player in ipairs(Players:GetPlayers()) do
-			local character = player.Character
-			if not character then continue end
-
-			local rootPart = character:FindFirstChild("HumanoidRootPart")
-			if not rootPart then continue end
-
-			local data = getPlayerData(player)
-			local playerPos = rootPart.Position
-
-			for coin, coinData in pairs(activeCoins) do
-				if not coin or not coin.Parent then
-					activeCoins[coin] = nil
-					continue
-				end
-
-				local coinPos = coin.Position
-				local dist = (playerPos - coinPos).Magnitude
-
-				-- Auto-collect if within radius
-				if dist <= data.radius then
-					collectCoin(player, coin)
-				elseif data.magnet and dist <= data.magnetRadius then
-					-- Move coin toward player (magnet effect)
-					local direction = (playerPos - coinPos).Unit
-					local newPos = coinPos + direction * math.min(2, dist - 1)
-					coin.Position = newPos
-				end
+-- Spin coins
+task.spawn(function()
+	local angle = 0
+	while true do
+		task.wait(0.05); angle = angle + 0.05
+		for _, entry in ipairs(coins) do
+			if entry.part and entry.part.Parent then
+				entry.part.CFrame = CFrame.new(entry.part.Position) * CFrame.Angles(0, angle, 0)
 			end
 		end
 	end
 end)
 
--- Initial coin spawn
-for i = 1, 50 do
-	spawnCoin()
-end
+-- Spawn coins
+task.spawn(function()
+	for i = 1, 60 do spawnCoin() end
+	while true do task.wait(1.2); spawnCoin(); spawnCoin() end
+end)
+
+-- Coin rain every 45s
+task.spawn(function()
+	while true do
+		task.wait(45)
+		Remotes:Get("EventAnnounce"):FireAllClients("🌧️ COIN RAIN! Bonus coins for 15 seconds!")
+		for i = 1, 30 do task.wait(0.5); spawnCoin(); spawnCoin(); spawnCoin() end
+	end
+end)
+
+-- Main loop
+RunService.Heartbeat:Connect(function()
+	for _, player in ipairs(Players:GetPlayers()) do
+		local data = playerData[player.UserId]
+		if not data then continue end
+		local char = player.Character
+		if not char then continue end
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root then continue end
+		local pos = root.Position
+
+		-- Boost pads
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj.Name == "BoostPad" and not data.boosted then
+				if (obj.Position - pos).Magnitude < 7 then
+					data.boosted = true
+					local hum = char:FindFirstChildOfClass("Humanoid")
+					if hum then hum.WalkSpeed = data.speed * 2.5 end
+					Remotes:Get("EventAnnounce"):FireClient(player, "⚡ SPEED BOOST! 5 seconds!")
+					task.delay(5, function()
+						data.boosted = false
+						if not data.slowed then
+							local h = char and char:FindFirstChildOfClass("Humanoid")
+							if h then h.WalkSpeed = data.speed end
+						end
+					end)
+				end
+			elseif obj.Name == "SlowZone" then
+				local onZ = (Vector3.new(obj.Position.X,pos.Y,obj.Position.Z)-pos).Magnitude < 8
+				if onZ and not data.slowed then
+					data.slowed = true
+					local hum = char:FindFirstChildOfClass("Humanoid")
+					if hum then hum.WalkSpeed = 5 end
+					Remotes:Get("EventAnnounce"):FireClient(player, "🐌 Slow zone! Get out fast!")
+				elseif not onZ and data.slowed then
+					data.slowed = false
+					if not data.boosted then
+						local hum = char:FindFirstChildOfClass("Humanoid")
+						if hum then hum.WalkSpeed = data.speed end
+					end
+				end
+			end
+		end
+
+		-- Magnet
+		if data.magnetRadius > 0 then
+			for _, entry in ipairs(coins) do
+				if entry.part and entry.part.Parent then
+					local dist = (entry.part.Position - pos).Magnitude
+					if dist < data.magnetRadius and dist > data.radius then
+						local dir = (pos - entry.part.Position).Unit
+						entry.part.Position = entry.part.Position + dir * 3
+					end
+				end
+			end
+		end
+
+		-- Auto-collect
+		local toCollect = {}
+		for _, entry in ipairs(coins) do
+			if entry.part and entry.part.Parent then
+				if (entry.part.Position - pos).Magnitude < data.radius then
+					table.insert(toCollect, entry)
+				end
+			end
+		end
+		for _, entry in ipairs(toCollect) do
+			collectCoin(player, entry)
+			removeCoin(entry)
+		end
+	end
+end)
 
 print("CoinManager loaded!")

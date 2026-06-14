@@ -1,182 +1,156 @@
 -- MapSetup.server.lua
--- Sets up the game map with baseplate, shop, decorations, and atmosphere
+-- Creates the game world
 
-local TweenService = game:GetService("TweenService")
+local workspace = game:GetService("Workspace")
 
--- Remove default baseplate if it exists
-local existingBaseplate = workspace:FindFirstChild("Baseplate")
-if existingBaseplate then
-	existingBaseplate:Destroy()
-end
-
--- Create large baseplate
+-- Large baseplate
 local baseplate = Instance.new("Part")
 baseplate.Name = "Baseplate"
-baseplate.Size = Vector3.new(500, 1, 500)
+baseplate.Size = Vector3.new(600, 1, 600)
 baseplate.Position = Vector3.new(0, -0.5, 0)
 baseplate.Anchored = true
-baseplate.Locked = true
-baseplate.Color = Color3.fromRGB(106, 127, 63)  -- Grass green
+baseplate.BrickColor = BrickColor.new("Bright green")
 baseplate.Material = Enum.Material.Grass
 baseplate.Parent = workspace
 
--- Create shop part
+-- Atmosphere
+local lighting = game:GetService("Lighting")
+local atmosphere = Instance.new("Atmosphere")
+atmosphere.Density = 0.3
+atmosphere.Color = Color3.fromRGB(199, 220, 255)
+atmosphere.Decay = Color3.fromRGB(106, 127, 189)
+atmosphere.Glare = 0
+atmosphere.Haze = 0
+atmosphere.Parent = lighting
+
+lighting.Sky = Instance.new("Sky")
+lighting.Sky.Parent = lighting
+
+-- Helper: BillboardGui
+local function makeBillboard(parent, text, textColor)
+    local bb = Instance.new("BillboardGui")
+    bb.Size = UDim2.new(0, 200, 0, 50)
+    bb.StudsOffset = Vector3.new(0, 5, 0)
+    bb.AlwaysOnTop = false
+    bb.Parent = parent
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = textColor or Color3.fromRGB(255, 255, 255)
+    label.TextScaled = true
+    label.Font = Enum.Font.GothamBold
+    label.Parent = bb
+end
+
+-- Boost pads (5)
+local boostPositions = {
+    Vector3.new(80, 0.5, 60),
+    Vector3.new(-120, 0.5, 100),
+    Vector3.new(150, 0.5, -80),
+    Vector3.new(-60, 0.5, -150),
+    Vector3.new(30, 0.5, 170),
+}
+for _, pos in ipairs(boostPositions) do
+    local pad = Instance.new("Part")
+    pad.Name = "BoostPad"
+    pad.Size = Vector3.new(8, 1, 8)
+    pad.Position = pos
+    pad.Anchored = true
+    pad.BrickColor = BrickColor.new("Bright yellow")
+    pad.Material = Enum.Material.Neon
+    pad.Parent = workspace
+    makeBillboard(pad, "⚡ SPEED BOOST!", Color3.fromRGB(255, 255, 0))
+end
+
+-- Slow zones (4)
+local slowPositions = {
+    Vector3.new(-100, 0.25, -100),
+    Vector3.new(130, 0.25, 130),
+    Vector3.new(-170, 0.25, 50),
+    Vector3.new(60, 0.25, -170),
+}
+for _, pos in ipairs(slowPositions) do
+    local zone = Instance.new("Part")
+    zone.Name = "SlowZone"
+    zone.Size = Vector3.new(12, 0.5, 12)
+    zone.Position = pos
+    zone.Anchored = true
+    zone.BrickColor = BrickColor.new("Dark indigo")
+    zone.Material = Enum.Material.Neon
+    zone.Transparency = 0.4
+    zone.Parent = workspace
+    makeBillboard(zone, "🐌 SLOW ZONE", Color3.fromRGB(180, 100, 255))
+end
+
+-- Shop building
 local shopPart = Instance.new("Part")
 shopPart.Name = "ShopPart"
-shopPart.Size = Vector3.new(10, 5, 10)
-shopPart.Position = Vector3.new(0, 2.5, -50)
+shopPart.Size = Vector3.new(12, 8, 12)
+shopPart.Position = Vector3.new(0, 4, -80)
 shopPart.Anchored = true
-shopPart.Color = Color3.fromRGB(0, 162, 255)  -- Bright blue
-shopPart.Material = Enum.Material.Neon
+shopPart.BrickColor = BrickColor.new("Bright blue")
+shopPart.Material = Enum.Material.SmoothPlastic
 shopPart.Parent = workspace
 
--- Shop billboard
-local shopBillboard = Instance.new("BillboardGui")
-shopBillboard.Size = UDim2.new(0, 200, 0, 80)
-shopBillboard.StudsOffset = Vector3.new(0, 4, 0)
-shopBillboard.AlwaysOnTop = true
-shopBillboard.Parent = shopPart
+local shopBb = Instance.new("BillboardGui")
+shopBb.Size = UDim2.new(0, 300, 0, 70)
+shopBb.StudsOffset = Vector3.new(0, 8, 0)
+shopBb.AlwaysOnTop = true
+shopBb.Parent = shopPart
 
 local shopLabel = Instance.new("TextLabel")
 shopLabel.Size = UDim2.new(1, 0, 1, 0)
-shopLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-shopLabel.BackgroundTransparency = 0.3
-shopLabel.Text = "🏪 SHOP\nPress E to Open"
-shopLabel.Font = Enum.Font.GothamBold
+shopLabel.BackgroundTransparency = 1
+shopLabel.Text = "🏪 SHOP (walk in!)"
+shopLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 shopLabel.TextScaled = true
-shopLabel.TextColor3 = Color3.new(1, 1, 1)
-shopLabel.TextStrokeTransparency = 0
-shopLabel.Parent = shopBillboard
+shopLabel.Font = Enum.Font.GothamBold
+shopLabel.Parent = shopBb
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0.1, 0)
-corner.Parent = shopLabel
-
--- Shop glow animation
-local shopLight = Instance.new("PointLight")
-shopLight.Brightness = 3
-shopLight.Range = 20
-shopLight.Color = Color3.fromRGB(0, 162, 255)
-shopLight.Parent = shopPart
-
--- Animate shop light
-task.spawn(function()
-	while true do
-		TweenService:Create(shopLight, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Brightness = 5}):Play()
-		task.wait(1)
-		TweenService:Create(shopLight, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Brightness = 2}):Play()
-		task.wait(1)
-	end
-end)
-
--- Spawn sign above shop
-local signPart = Instance.new("Part")
-signPart.Name = "ShopSign"
-signPart.Size = Vector3.new(12, 3, 0.5)
-signPart.Position = Vector3.new(0, 7, -50)
-signPart.Anchored = true
-signPart.Color = Color3.fromRGB(255, 200, 0)
-signPart.Material = Enum.Material.Neon
-signPart.Parent = workspace
-
-local signGui = Instance.new("SurfaceGui")
-signGui.Face = Enum.NormalId.Front
-signGui.Parent = signPart
-
-local signLabel = Instance.new("TextLabel")
-signLabel.Size = UDim2.new(1, 0, 1, 0)
-signLabel.BackgroundTransparency = 1
-signLabel.Text = "🪙 COIN SHOP 🪙"
-signLabel.Font = Enum.Font.GothamBold
-signLabel.TextScaled = true
-signLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
-signLabel.Parent = signGui
-
--- Create decorative trees
-local function createTree(x, z)
-	local treeFolder = Instance.new("Folder")
-	treeFolder.Name = "Tree"
-	treeFolder.Parent = workspace
-
-	-- Trunk
-	local trunk = Instance.new("Part")
-	trunk.Name = "Trunk"
-	trunk.Shape = Enum.PartType.Cylinder
-	trunk.Size = Vector3.new(8, 1.5, 1.5)
-	trunk.CFrame = CFrame.new(x, 4, z) * CFrame.Angles(0, 0, math.pi / 2)
-	trunk.Anchored = true
-	trunk.Color = Color3.fromRGB(106, 75, 45)
-	trunk.Material = Enum.Material.Wood
-	trunk.Parent = treeFolder
-
-	-- Leaves
-	local leaves = Instance.new("Part")
-	leaves.Name = "Leaves"
-	leaves.Shape = Enum.PartType.Ball
-	leaves.Size = Vector3.new(6, 6, 6)
-	leaves.Position = Vector3.new(x, 9, z)
-	leaves.Anchored = true
-	leaves.Color = Color3.fromRGB(
-		math.random(60, 100),
-		math.random(120, 180),
-		math.random(40, 80)
-	)
-	leaves.Material = Enum.Material.Grass
-	leaves.Parent = treeFolder
+-- 40 decorative trees
+math.randomseed(42)
+local treePositions = {}
+local function isTooClose(pos)
+    for _, p in ipairs(treePositions) do
+        if (p - pos).Magnitude < 12 then return true end
+    end
+    -- avoid center and shop
+    if pos.Magnitude < 30 then return true end
+    if (pos - Vector3.new(0, 0, -80)).Magnitude < 20 then return true end
+    return false
 end
 
--- Place trees randomly around the map (avoiding center/shop area)
-math.randomseed(12345)
-for i = 1, 40 do
-	local angle = math.random() * math.pi * 2
-	local dist = math.random(30, 220)
-	local x = math.cos(angle) * dist
-	local z = math.sin(angle) * dist
+local treesPlaced = 0
+local attempts = 0
+while treesPlaced < 40 and attempts < 500 do
+    attempts = attempts + 1
+    local x = math.random(-200, 200)
+    local z = math.random(-200, 200)
+    local pos2d = Vector3.new(x, 0, z)
+    if not isTooClose(pos2d) then
+        table.insert(treePositions, pos2d)
+        treesPlaced = treesPlaced + 1
 
-	-- Skip area near shop
-	if math.abs(z + 50) > 15 or math.abs(x) > 15 then
-		createTree(x, z)
-	end
+        -- Trunk
+        local trunk = Instance.new("Part")
+        trunk.Shape = Enum.PartType.Cylinder
+        trunk.Size = Vector3.new(5, 1.5, 1.5)
+        trunk.Position = Vector3.new(x, 2.5, z)
+        trunk.Anchored = true
+        trunk.BrickColor = BrickColor.new("Reddish brown")
+        trunk.Material = Enum.Material.Wood
+        trunk.Parent = workspace
+
+        -- Top
+        local top = Instance.new("Part")
+        top.Shape = Enum.PartType.Ball
+        top.Size = Vector3.new(5, 5, 5)
+        top.Position = Vector3.new(x, 7, z)
+        top.Anchored = true
+        top.BrickColor = BrickColor.new("Bright green")
+        top.Material = Enum.Material.Grass
+        top.Parent = workspace
+    end
 end
-
--- Spawn point marker
-local spawnCircle = Instance.new("Part")
-spawnCircle.Name = "SpawnPoint"
-spawnCircle.Shape = Enum.PartType.Cylinder
-spawnCircle.Size = Vector3.new(0.2, 8, 8)
-spawnCircle.CFrame = CFrame.new(0, 0.1, 0) * CFrame.Angles(0, 0, math.pi/2)
-spawnCircle.Anchored = true
-spawnCircle.Color = Color3.fromRGB(0, 255, 100)
-spawnCircle.Material = Enum.Material.Neon
-spawnCircle.CanCollide = false
-spawnCircle.Parent = workspace
-
--- Set ambient lighting
-local lighting = game:GetService("Lighting")
-lighting.Ambient = Color3.fromRGB(80, 80, 80)
-lighting.Brightness = 2
-lighting.ColorShift_Bottom = Color3.fromRGB(0, 20, 40)
-lighting.ColorShift_Top = Color3.fromRGB(20, 40, 80)
-lighting.TimeOfDay = "14:00:00"
-
--- Add atmosphere
-local atmosphere = Instance.new("Atmosphere")
-atmosphere.Density = 0.3
-atmosphere.Offset = 0.25
-atmosphere.Color = Color3.fromRGB(199, 210, 255)
-atmosphere.Decay = Color3.fromRGB(106, 112, 125)
-atmosphere.Glare = 0.2
-atmosphere.Haze = 0.5
-atmosphere.Parent = lighting
-
--- Add sky
-local sky = Instance.new("Sky")
-sky.SkyboxBk = "rbxasset://textures/sky/sky512_bk.tex"
-sky.SkyboxDn = "rbxasset://textures/sky/sky512_dn.tex"
-sky.SkyboxFt = "rbxasset://textures/sky/sky512_ft.tex"
-sky.SkyboxLf = "rbxasset://textures/sky/sky512_lf.tex"
-sky.SkyboxRt = "rbxasset://textures/sky/sky512_rt.tex"
-sky.SkyboxUp = "rbxasset://textures/sky/sky512_up.tex"
-sky.Parent = lighting
-
-print("MapSetup loaded!")
