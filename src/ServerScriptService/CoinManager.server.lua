@@ -13,6 +13,7 @@ local evAnnounce      = makeRemote("RemoteEvent",    "EventAnnounce")
 local fnPurchase      = makeRemote("RemoteFunction", "PurchaseUpgrade")
 local evRankingUpdate = makeRemote("RemoteEvent",    "RankingUpdate")
 local fnGachaSpin     = makeRemote("RemoteFunction", "GachaSpin")
+local evPendantUnlocked = makeRemote("RemoteEvent", "PendantUnlocked")
 
 local playerData = {}
 
@@ -89,6 +90,12 @@ local COIN_TYPES = {
 	{name="Rare",      color=Color3.fromRGB(100,149,237),value=5,   size=2.2, weight=25},
 	{name="Epic",      color=Color3.fromRGB(148,0,211),  value=20,  size=2.7, weight=12},
 	{name="Legendary", color=Color3.fromRGB(255,100,0),  value=100, size=3.5, weight=3},
+}
+
+local CURSED_COIN_TYPES = {
+	{name="Cursed",  color=Color3.fromRGB(120,0,180), value=-20,  size=1.8, weight=50, label="-20"},
+	{name="Void",    color=Color3.fromRGB(10,0,20),   value=-100, size=2.5, weight=30, label="-100"},
+	{name="Drain",   color=Color3.fromRGB(180,0,0),   value=-0.5, size=2.0, weight=20, label="-50%", isPercent=true},
 }
 
 local coins = {}
@@ -292,7 +299,8 @@ local function onPlayerAdded(player)
 		coins=0, total=0, radius=10, multiplier=1, magnetRadius=0,
 		combo=0, lastCollect=0, comboMultiplier=1,
 		upgrades={}, boosted=false, slowed=false, taxCooldown=false,
-		lastWave=1, gachaItems={},
+		lastWave=1, gachaItems={}, hasPendant=false,
+		lastSkyCoinSpawn=0,
 	}
 	player.CharacterAdded:Connect(function(char)
 		task.wait(0.1)
@@ -307,27 +315,43 @@ Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(function(p) playerData[p.UserId]=nil end)
 
 -- Coins
-local function spawnCoin()
+local function spawnCoinAt(x, y, z, forceLegendary)
 	if #coins >= MAX_COINS then return end
-	local roll=math.random(100); local cum=0; local ct=COIN_TYPES[1]
-	for _,t in ipairs(COIN_TYPES) do cum=cum+t.weight; if roll<=cum then ct=t; break end end
-	local isLucky = math.random()<0.04
-	local value = ct.value*(isLucky and 10 or 1)
+	local isCursed = (not forceLegendary) and math.random() < 0.20
+	local ct, value, label, isPercent, isLucky
+	if isCursed then
+		local roll=math.random(100); local cum=0; ct=CURSED_COIN_TYPES[1]
+		for _,t in ipairs(CURSED_COIN_TYPES) do cum=cum+t.weight; if roll<=cum then ct=t; break end end
+		value=ct.value; label=ct.label; isPercent=ct.isPercent; isLucky=false
+	elseif forceLegendary then
+		ct=COIN_TYPES[4]; value=ct.value; label="+"..ct.value; isPercent=false; isLucky=false
+	else
+		local roll=math.random(100); local cum=0; ct=COIN_TYPES[1]
+		for _,t in ipairs(COIN_TYPES) do cum=cum+t.weight; if roll<=cum then ct=t; break end end
+		isLucky = math.random()<0.04
+		value = ct.value*(isLucky and 10 or 1)
+		label=(isLucky and "⭐" or "+")..value; isPercent=false
+	end
 	local part = Instance.new("Part")
 	part.Shape=Enum.PartType.Ball; part.Size=Vector3.new(ct.size,ct.size,ct.size)
-	part.Color=isLucky and Color3.fromRGB(255,255,100) or ct.color
-	part.Material=(ct.name=="Common") and Enum.Material.SmoothPlastic or Enum.Material.Neon
+	part.Color=(not isCursed and isLucky) and Color3.fromRGB(255,255,100) or ct.color
+	part.Material=(not isCursed and ct.name=="Common") and Enum.Material.SmoothPlastic or Enum.Material.Neon
 	part.Anchored=true; part.CanCollide=false; part.CastShadow=false
-	part.Position=Vector3.new(math.random(-180,180),1.5,math.random(-180,180))
+	part.Position=Vector3.new(x, y, z)
 	part.Parent=coinFolder
-	if isLucky or ct.name=="Legendary" then
+	if not isCursed and (isLucky or ct.name=="Legendary") then
 		local sp=Instance.new("Sparkles"); sp.SparkleColor=part.Color; sp.Parent=part
 	end
-	local bb=Instance.new("BillboardGui"); bb.Size=UDim2.new(0,60,0,26); bb.StudsOffset=Vector3.new(0,2.5,0); bb.Parent=part
+	local bb=Instance.new("BillboardGui"); bb.Size=UDim2.new(0,70,0,28); bb.StudsOffset=Vector3.new(0,2.5,0); bb.Parent=part
 	local lbl=Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,1,0); lbl.BackgroundTransparency=1
-	lbl.Text=(isLucky and "⭐" or "+")..value; lbl.TextColor3=Color3.new(1,1,1)
+	lbl.Text=label
+	lbl.TextColor3=isCursed and Color3.fromRGB(255,80,80) or Color3.new(1,1,1)
 	lbl.TextStrokeTransparency=0; lbl.TextScaled=true; lbl.Font=Enum.Font.GothamBold; lbl.Parent=bb
-	table.insert(coins, {part=part,value=value,lucky=isLucky})
+	table.insert(coins, {part=part, value=value, lucky=isLucky, cursed=isCursed, isPercent=isPercent})
+end
+
+local function spawnCoin()
+	spawnCoinAt(math.random(-180,180), 1.5, math.random(-180,180), false)
 end
 
 local function removeCoin(entry)
@@ -339,16 +363,40 @@ local function collectCoin(player, entry)
 	local data = playerData[player.UserId]
 	if not data then return end
 	local now = tick()
-	if now-data.lastCollect<1.5 then data.combo=math.min(data.combo+1,50) else data.combo=1 end
-	data.lastCollect=now
-	data.comboMultiplier=math.min(1+math.floor(data.combo/10),5)
-	local earned=entry.value*data.multiplier*data.comboMultiplier
-	data.coins=data.coins+earned; data.total=data.total+earned
-	evShowEffect:FireClient(player,{
-		type=entry.lucky and "lucky" or "collect",
-		position=entry.part and entry.part.Position or Vector3.new(0,2,0),
-		value=earned, combo=data.combo,
-	})
+	if entry.cursed then
+		-- Cursed coin: apply penalty
+		local lost = 0
+		if entry.isPercent then
+			lost = math.floor(data.coins * 0.5)
+			data.coins = math.max(0, data.coins - lost)
+		else
+			lost = math.abs(entry.value)
+			data.coins = math.max(0, data.coins + entry.value)
+		end
+		evShowEffect:FireClient(player,{
+			type="tax",
+			position=entry.part and entry.part.Position or Vector3.new(0,2,0),
+			value=-lost, combo=data.combo,
+		})
+		evAnnounce:FireClient(player, "💀 CURSED COIN! Lost "..lost.." coins!")
+	else
+		if now-data.lastCollect<1.5 then data.combo=math.min(data.combo+1,50) else data.combo=1 end
+		data.lastCollect=now
+		data.comboMultiplier=math.min(1+math.floor(data.combo/10),5)
+		local earned=entry.value*data.multiplier*data.comboMultiplier
+		data.coins=data.coins+earned; data.total=data.total+earned
+		evShowEffect:FireClient(player,{
+			type=entry.lucky and "lucky" or "collect",
+			position=entry.part and entry.part.Position or Vector3.new(0,2,0),
+			value=earned, combo=data.combo,
+		})
+	end
+	-- Pendant unlock check
+	if data.total >= 5000 and not data.hasPendant then
+		data.hasPendant = true
+		evPendantUnlocked:FireClient(player)
+		evAnnounce:FireClient(player, "You obtained the LAPUTA PENDANT! Find the light beam!")
+	end
 	applySpeed(player)
 	fireUpdate(player)
 end
@@ -774,6 +822,29 @@ task.spawn(function()
 						evAnnounce:FireClient(other, msg2)
 						fireUpdate(player)
 						fireUpdate(other)
+					end
+				end
+			end
+
+			-- ✨ Pendant warp beam check
+			if data.hasPendant then
+				local warpPos = Vector3.new(0, pos.Y, -20)
+				local horizDist = (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(0, 0, -20)).Magnitude
+				if horizDist < 4 and pos.Y < 50 then
+					root.CFrame = CFrame.new(0, 410, 0)
+					evAnnounce:FireClient(player, "Warped to Laputa Sky Castle!")
+				end
+			end
+
+			-- Sky castle coin spawning (when above Y=380)
+			if pos.Y > 380 then
+				local now2 = tick()
+				if now2 - (data.lastSkyCoinSpawn or 0) >= 3 then
+					data.lastSkyCoinSpawn = now2
+					for i = 1, 3 do
+						local ox = math.random(-20, 20)
+						local oz = math.random(-20, 20)
+						spawnCoinAt(pos.X + ox, pos.Y + 2, pos.Z + oz, true)
 					end
 				end
 			end
